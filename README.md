@@ -1,14 +1,14 @@
 # 🍎 iOS Smart Update & Storage Optimizer (Windows Desktop Edition)
 
-โปรแกรม Windows Desktop Application (.EXE) แบบครบวงจร สำหรับตรวจสอบเวอร์ชัน iOS, ประเมินความพร้อมก่อนอัปเดต, **แก้ไขปัญหาพื้นที่จัดเก็บไม่เพียงพอ**, และดำเนินการอัปเดตหรือกู้คืนระบบ iOS อย่างปลอดภัย
+โปรแกรม Windows Desktop Application (.EXE) แบบครบวงจร สำหรับตรวจสอบเวอร์ชัน iOS (**รองรับ iOS 8 ขึ้นไป** ตั้งแต่ iPhone 4s ถึงรุ่นล่าสุด, iPad และ iPod touch), ประเมินความพร้อมก่อนอัปเดต, **แก้ไขปัญหาพื้นที่จัดเก็บไม่เพียงพอ**, และดำเนินการอัปเดตหรือกู้คืนระบบ iOS อย่างปลอดภัย
 
 ---
 
 ## 🌟 คุณสมบัติเด่น (Key Features)
 
-### 1. 📱 ตรวจสอบเครื่องและเวอร์ชัน iOS (Device & Firmware Check)
-- **สแกนอุปกรณ์ผ่าน USB จริง (Live USB Detection)**: ตรวจจับ iPhone/iPad อัตโนมัติผ่าน Apple Lockdown และ USBMuxd service แสดงข้อมูล Device Name, Product Type, Serial Number, เลขเวอร์ชันปัจจุบัน, สถานะแบตเตอรี่ และพื้นที่ความจุ
-- **โหมดจำลองสถานการณ์ (Simulated Mode)**: มีพรีเซ็ตอุปกรณ์ยอดนิยม (iPhone 11 ถึง iPhone 16 Pro Max, iPad) ให้ทดลองประเมินและทดสอบระบบได้ทันทีแม้ยังไม่ได้เสียบ iPhone จริง
+### 1. 📱 ตรวจสอบเครื่องและเวอร์ชัน iOS (Device & Firmware Check - iOS 8+)
+- **สแกนอุปกรณ์ผ่าน USB จริง (Live USB Detection)**: ตรวจจับ iPhone/iPad/iPod touch อัตโนมัติตั้งแต่ **iOS 8.0 ขึ้นไป** ผ่าน Apple Lockdown และ USBMuxd (รองรับทั้งระบบไฟล์ HFS+ และ APFS, สถาปัตยกรรม 32-bit และ 64-bit) แสดงข้อมูล Device Name, Product Type, Serial Number, เลขเวอร์ชันปัจจุบัน, สถานะแบตเตอรี่ (รวมถึง IORegistry `IOPMPowerSource` สำหรับ iOS 8-11) และพื้นที่ความจุ
+- **โหมดจำลองสถานการณ์ (Simulated Mode)**: มีพรีเซ็ตอุปกรณ์ยอดนิยมครอบคลุมทั้งรุ่นคลาสสิก iOS 8/10/12 (iPhone 6, 6s, 7) และรุ่นใหม่ (iPhone 11 ถึง iPhone 16 Pro Max) ให้ทดลองประเมินและทดสอบระบบได้ทันทีแม้ยังไม่ได้เสียบ iPhone จริง
 - **ตรวจเช็คเวอร์ชันใหม่จาก Apple Server**: ดึงข้อมูลอัปเดตล่าสุดและสถานะการลงนามรับรอง (**Apple TSS Signing**) แบบ Real-time ผ่าน Apple IPSW API
 
 ---

@@ -1,33 +1,27 @@
 """
 Driver Manager for Apple Mobile Device Support and usbmuxd on Windows.
-Checks presence of Apple drivers, usbmuxd service, and offers official Apple MSI download.
+Checks presence of Apple drivers (iTunes / Apple Devices / AMDS), usbmuxd service,
+and offers official Apple MSI download for iOS 8+ devices.
 """
 
 import os
 import subprocess
-import shutil
 import winreg
 import requests
 
 APPLE_AMDS_URL = "https://swcdn.apple.com/content/downloads/20/49/047-76422/qcw2a7028lr8yp4rdkrfyzkvlhi9q1gg2g/AppleMobileDeviceSupport64.msi"
 
+
 def check_apple_drivers_installed():
     """
-    Checks if Apple Mobile Device Support is installed and if its service is active.
-    Returns:
-        dict: {
-            "installed": bool,
-            "version": str or None,
-            "service_running": bool,
-            "path": str or None,
-            "details": str
-        }
+    Checks if Apple Mobile Device Support (or Apple Devices / iTunes) is installed
+    and if its usbmuxd service is active for iOS 8+ USB detection.
     """
     installed = False
     version = None
     service_running = False
     driver_path = None
-    
+
     # 1. Check Registry for Apple Mobile Device Support
     reg_paths = [
         r"SOFTWARE\Apple Inc.\Apple Mobile Device Support",
@@ -51,10 +45,10 @@ def check_apple_drivers_installed():
         except Exception:
             pass
 
-    # 2. Check standard Program Files folder
+    # 2. Check standard Program Files folder & Windows driver store
     common_paths = [
         r"C:\Program Files\Common Files\Apple\Mobile Device Support\AppleMobileDeviceService.exe",
-        r"C:\Program Files (x86)\Common Files\Apple\Mobile Device Support\AppleMobileDeviceService.exe"
+        r"C:\Program Files (x86)\Common Files\Apple\Mobile Device Support\AppleMobileDeviceService.exe",
     ]
     for p in common_paths:
         if os.path.exists(p):
@@ -62,17 +56,26 @@ def check_apple_drivers_installed():
             driver_path = os.path.dirname(p)
             break
 
-    # 3. Check Windows Service status
-    try:
-        cmd = ["sc", "query", "Apple Mobile Device Service"]
-        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if "RUNNING" in res.stdout:
-            service_running = True
-    except Exception:
-        pass
+    # 3. Check Windows Service status (classic AMDS or Apple Devices UWP usbmuxd)
+    for svc_name in ("Apple Mobile Device Service", "usbmuxd"):
+        try:
+            res = subprocess.run(
+                ["sc", "query", svc_name],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if "RUNNING" in res.stdout:
+                installed = True
+                service_running = True
+                if not driver_path:
+                    driver_path = f"Windows Service: {svc_name}"
+                break
+        except Exception:
+            pass
 
     if installed and service_running:
-        details = "ติดตั้งเรียบร้อยและ Service ทำงานปกติ (พร้อมเชื่อมต่ออุปกรณ์ iOS)"
+        details = "ติดตั้งเรียบร้อยและ Service ทำงานปกติ (พร้อมเชื่อมต่อ iOS 8 ขึ้นไป)"
     elif installed and not service_running:
         details = "ติดตั้งไดรเวอร์แล้ว แต่ Apple Mobile Device Service ยังไม่เริ่มทำงาน"
     else:
@@ -86,26 +89,23 @@ def check_apple_drivers_installed():
         "details": details
     }
 
+
 def start_apple_service():
     """Attempts to start Apple Mobile Device Service."""
     try:
         subprocess.run(["sc", "start", "Apple Mobile Device Service"], capture_output=True, text=True, check=False)
         return True
-    except Exception as e:
+    except Exception:
         return False
+
 
 def download_apple_driver_msi(target_folder="downloads", progress_callback=None):
     """
     Downloads AppleMobileDeviceSupport64.msi directly from Apple CDN.
-    Args:
-        target_folder: Destination folder
-        progress_callback: callback(downloaded_bytes, total_bytes, percent)
-    Returns:
-        str: Absolute path to downloaded MSI
     """
     os.makedirs(target_folder, exist_ok=True)
     destination = os.path.abspath(os.path.join(target_folder, "AppleMobileDeviceSupport64.msi"))
-    
+
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     with requests.get(APPLE_AMDS_URL, headers=headers, stream=True, timeout=30) as r:
         r.raise_for_status()

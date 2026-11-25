@@ -1,15 +1,17 @@
 """
 Apple IPSW and Firmware Service.
 Queries Apple's official signed firmware availability via IPSW API and Apple TSS.
+Supports all iOS 8+ compatible devices (iPhone 4s through latest, iPad, iPod touch).
 """
 
 import warnings
 warnings.filterwarnings("ignore")
 
+import re
 import requests
 from packaging import version as pkg_version
 
-# Pre-defined list of common devices for immediate offline / quick UI selection (Apple Official Hardware Identifiers)
+# Pre-defined list of common devices for immediate offline / quick UI selection (iOS 8+ through latest)
 POPULAR_DEVICES = [
     {"name": "iPhone 16 Pro Max", "identifier": "iPhone17,2"},
     {"name": "iPhone 16 Pro", "identifier": "iPhone17,1"},
@@ -35,21 +37,48 @@ POPULAR_DEVICES = [
     {"name": "iPhone 11 Pro Max", "identifier": "iPhone12,5"},
     {"name": "iPhone 11 Pro", "identifier": "iPhone12,3"},
     {"name": "iPhone 11", "identifier": "iPhone12,1"},
+    {"name": "iPhone XS Max", "identifier": "iPhone11,6"},
+    {"name": "iPhone XS", "identifier": "iPhone11,2"},
+    {"name": "iPhone XR", "identifier": "iPhone11,8"},
+    {"name": "iPhone X", "identifier": "iPhone10,6"},
+    {"name": "iPhone 8 Plus", "identifier": "iPhone10,5"},
+    {"name": "iPhone 8", "identifier": "iPhone10,4"},
+    {"name": "iPhone 7 Plus", "identifier": "iPhone9,2"},
+    {"name": "iPhone 7", "identifier": "iPhone9,1"},
+    {"name": "iPhone SE (1st gen)", "identifier": "iPhone8,4"},
+    {"name": "iPhone 6s Plus", "identifier": "iPhone8,2"},
+    {"name": "iPhone 6s", "identifier": "iPhone8,1"},
+    {"name": "iPhone 6 Plus", "identifier": "iPhone7,1"},
+    {"name": "iPhone 6", "identifier": "iPhone7,2"},
+    {"name": "iPhone 5s", "identifier": "iPhone6,1"},
+    {"name": "iPhone 5c", "identifier": "iPhone5,3"},
+    {"name": "iPhone 5", "identifier": "iPhone5,1"},
+    {"name": "iPhone 4s", "identifier": "iPhone4,1"},
     {"name": "iPad Pro 13-inch (M4)", "identifier": "iPad16,5"},
     {"name": "iPad Pro 11-inch (M4)", "identifier": "iPad16,3"},
     {"name": "iPad Air 13-inch (M2)", "identifier": "iPad14,10"},
     {"name": "iPad Air 11-inch (M2)", "identifier": "iPad14,8"},
+    {"name": "iPad Air 2", "identifier": "iPad5,3"},
+    {"name": "iPad mini 4", "identifier": "iPad5,1"},
 ]
 
 _FIRMWARE_CACHE = {}
 
+
+def _clean_version_str(ver: str) -> str:
+    """Strips Rapid Security Response suffixes like '(a)' before version parsing."""
+    cleaned = re.sub(r"\s*\([^)]*\)", "", str(ver or "")).strip()
+    return cleaned or "0"
+
+
 def get_popular_devices():
-    """Returns list of commonly used iOS devices."""
+    """Returns list of commonly used iOS devices (iOS 8+ compatible)."""
     return POPULAR_DEVICES
+
 
 def fetch_firmware_info(identifier: str):
     """
-    Fetches firmware list for an iOS device identifier (e.g. 'iPhone15,2').
+    Fetches firmware list for an iOS device identifier (e.g. 'iPhone7,2', 'iPhone15,2').
     Returns:
         dict: {
             "device_name": str,
@@ -67,14 +96,14 @@ def fetch_firmware_info(identifier: str):
         resp = requests.get(url, timeout=12)
         resp.raise_for_status()
         data = resp.json()
-        
+
         firmwares = data.get("firmwares", [])
         signed_firmwares = [f for f in firmwares if f.get("signed", False)]
-        
+
         # Sort signed firmwares by version descending to get true latest release
         def _sort_ver(fw):
             try:
-                return pkg_version.parse(str(fw.get("version", "0")))
+                return pkg_version.parse(_clean_version_str(fw.get("version", "0")))
             except Exception:
                 return pkg_version.parse("0")
 
@@ -100,17 +129,21 @@ def fetch_firmware_info(identifier: str):
             "error": str(e)
         }
 
+
 def compare_versions(current_ver: str, target_ver: str) -> str:
     """
-    Compares current iOS version against target version.
+    Compares current iOS version against target version (supports iOS 8.0 through latest,
+    including Rapid Security Response tags like '17.4.1 (a)').
     Returns:
         'UPDATE_AVAILABLE': target is newer
         'UP_TO_DATE': current is same or newer
         'DOWNGRADE': current is newer than target
     """
+    c_clean = _clean_version_str(current_ver)
+    t_clean = _clean_version_str(target_ver)
     try:
-        c_ver = pkg_version.parse(str(current_ver).strip())
-        t_ver = pkg_version.parse(str(target_ver).strip())
+        c_ver = pkg_version.parse(c_clean)
+        t_ver = pkg_version.parse(t_clean)
         if t_ver > c_ver:
             return "UPDATE_AVAILABLE"
         elif t_ver == c_ver:
@@ -118,6 +151,6 @@ def compare_versions(current_ver: str, target_ver: str) -> str:
         else:
             return "DOWNGRADE"
     except Exception:
-        if str(target_ver).strip() != str(current_ver).strip():
+        if t_clean != c_clean:
             return "UPDATE_AVAILABLE"
         return "UP_TO_DATE"

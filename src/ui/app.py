@@ -32,6 +32,7 @@ from ..ios_device import (
     DeviceInfo,
     detect_real_usb_device,
     get_simulated_device,
+    get_ios_compatibility_profile,
     SIMULATION_PRESETS
 )
 from ..ipsw_service import (
@@ -121,7 +122,7 @@ class IOSOptimizerApp(ctk.CTk):
 
         app_subtitle = ctk.CTkLabel(
             title_box,
-            text="เครื่องมือตรวจสอบ iOS, ประเมินความพร้อม, แก้ไขปัญหาพื้นที่เต็ม และอัปเดตระบบแบบปลอดภัย",
+            text="เครื่องมือตรวจสอบ iOS (รองรับ iOS 8 ขึ้นไป), ประเมินความพร้อม, แก้ไขปัญหาพื้นที่เต็ม และอัปเดตระบบแบบปลอดภัย",
             font=ctk.CTkFont(size=12),
             text_color="#A0A5B5"
         )
@@ -237,7 +238,8 @@ class IOSOptimizerApp(ctk.CTk):
         self.lbl_model_id = self._create_info_row(self.info_grid, "Model Identifier:", "iPhone16,1", 0)
         self.lbl_serial = self._create_info_row(self.info_grid, "Serial Number:", "DNQXW01K0DN1", 1)
         self.lbl_current_ios = self._create_info_row(self.info_grid, "เวอร์ชัน iOS ในเครื่องนี้:", "iOS 17.4.1", 2)
-        self.lbl_battery = self._create_info_row(self.info_grid, "ระดับแบตเตอรี่:", "78% (กำลังชาร์จ)", 3)
+        self.lbl_ios_compat = self._create_info_row(self.info_grid, "ความเข้ากันได้ / ระบบไฟล์:", "รองรับ (iOS 8+) • APFS", 3)
+        self.lbl_battery = self._create_info_row(self.info_grid, "ระดับแบตเตอรี่:", "78% (กำลังชาร์จ)", 4)
 
         # Storage Meter
         lbl_storage_title = ctk.CTkLabel(self.card_device, text="💾 พื้นที่จัดเก็บบนเครื่อง (iPhone Storage):", font=ctk.CTkFont(size=13, weight="bold"))
@@ -293,7 +295,6 @@ class IOSOptimizerApp(ctk.CTk):
             wraplength=420,
             justify="left"
         )
-        self.lbl_fw_note.pack(anchor="w", padx=20, pady=(15, 15))
         self.lbl_fw_note.pack(anchor="w", padx=20, pady=(15, 15))
 
         # Bottom Button Bar for Tab 1
@@ -368,16 +369,17 @@ class IOSOptimizerApp(ctk.CTk):
 
         self.lbl_score_desc = ctk.CTkLabel(
             score_text_box,
-            text="วิเคราะห์ปัจจัยสำคัญ 4 มิติ: พื้นที่ iPhone, แบตเตอรี่, การรับรองเฟิร์มแวร์ และพื้นที่คอมพิวเตอร์",
+            text="วิเคราะห์ปัจจัยสำคัญ 5 มิติ: ความเข้ากันได้ iOS 8+, พื้นที่ iPhone, แบตเตอรี่, การรับรองเฟิร์มแวร์ และพื้นที่คอมพิวเตอร์",
             font=ctk.CTkFont(size=12),
             text_color="#A0A5B5"
         )
         self.lbl_score_desc.pack(anchor="w", pady=(3, 0))
 
-        # 4 Diagnostic Check Cards (Scrollable)
+        # 5 Diagnostic Check Cards (Scrollable)
         self.scroll_eval = ctk.CTkScrollableFrame(tab, corner_radius=12, fg_color="#181A20", height=380)
         self.scroll_eval.pack(fill="both", expand=True, padx=10, pady=5)
 
+        self.card_eval_compat = self._create_eval_item(self.scroll_eval, "📱 ความเข้ากันได้ของระบบ (iOS 8+ Compatibility)")
         self.card_eval_storage = self._create_eval_item(self.scroll_eval, "💾 การประเมินพื้นที่จัดเก็บ (Storage Assessment)")
         self.card_eval_battery = self._create_eval_item(self.scroll_eval, "🔋 การประเมินแบตเตอรี่และพลังงาน (Power & Battery)")
         self.card_eval_firmware = self._create_eval_item(self.scroll_eval, "🔐 การตรวจสอบความถูกต้องของเฟิร์มแวร์ (Apple TSS Signing)")
@@ -695,10 +697,19 @@ class IOSOptimizerApp(ctk.CTk):
 
         guide_scroll = ctk.CTkScrollableFrame(right_guide, fg_color="transparent")
         guide_scroll.pack(fill="both", expand=True, padx=6, pady=(0, 8))
+        self.guide_scroll = guide_scroll
+        self._render_optimization_guides()
 
-        guides = StorageFixer.get_actionable_optimization_guide()
+    def _render_optimization_guides(self):
+        if not hasattr(self, "guide_scroll"):
+            return
+        for child in self.guide_scroll.winfo_children():
+            child.destroy()
+
+        ios_ver = self.current_device.current_ios_version if hasattr(self, "current_device") else "17.0"
+        guides = StorageFixer.get_actionable_optimization_guide(ios_version=ios_ver)
         for g in guides:
-            g_card = ctk.CTkFrame(guide_scroll, corner_radius=8, fg_color="#181A20")
+            g_card = ctk.CTkFrame(self.guide_scroll, corner_radius=8, fg_color="#181A20")
             g_card.pack(fill="x", padx=4, pady=4)
 
             lbl_g_title = ctk.CTkLabel(g_card, text=g["title"], font=ctk.CTkFont(size=11, weight="bold"), text_color="#FFFFFF")
@@ -1201,7 +1212,19 @@ class IOSOptimizerApp(ctk.CTk):
         self.lbl_model_id.configure(text=dev.product_type)
         self.lbl_serial.configure(text=dev.serial_number)
         self.lbl_current_ios.configure(text=f"iOS {dev.current_ios_version} ({dev.build_version})")
-        
+
+        compat = get_ios_compatibility_profile(dev.current_ios_version, dev.product_type)
+        if hasattr(self, "lbl_ios_compat"):
+            compat_text = (
+                f"รองรับ (iOS 8+) • {compat['filesystem']} • {compat['arch']}"
+                if compat["supported"]
+                else f"ต่ำกว่า iOS 8 • {compat['filesystem']}"
+            )
+            self.lbl_ios_compat.configure(
+                text=compat_text,
+                text_color="#34C759" if compat["supported"] else "#FF3B30"
+            )
+
         charging_str = "กำลังชาร์จ" if dev.is_charging else "ใช้แบตเตอรี่"
         self.lbl_battery.configure(text=f"{dev.battery_level}% ({charging_str})")
 
@@ -1212,10 +1235,12 @@ class IOSOptimizerApp(ctk.CTk):
         pct = (used_gb / total_gb) if total_gb > 0 else 0.5
         self.storage_progress.set(min(1.0, max(0.0, pct)))
 
-        if free_gb < 2.0:
+        pc_min = 1.2 if compat["major"] <= 12 else 2.0
+        ota_min = 4.0 if compat["major"] <= 12 else 8.0
+        if free_gb < pc_min:
             color = "#FF3B30" # Red
             warning = " (วิกฤต - ต้องเคลียร์ขยะ)"
-        elif free_gb < 8.0:
+        elif free_gb < ota_min:
             color = "#FF9500" # Orange
             warning = " (OTA ไม่พอ แต่ PC อัปเดตได้)"
         else:
@@ -1279,7 +1304,13 @@ class IOSOptimizerApp(ctk.CTk):
 
         # Update Cards
         checks = res["checks"]
-        
+
+        # 0. iOS 8+ Compatibility
+        if hasattr(self, "card_eval_compat") and "ios_compatibility" in checks:
+            cp = checks["ios_compatibility"]
+            self.card_eval_compat["badge"].configure(text=cp["badge"], fg_color="#34C759" if cp["passed"] else "#FF3B30")
+            self.card_eval_compat["detail"].configure(text=cp["message"])
+
         # 1. Storage
         st = checks["storage"]
         self.card_eval_storage["badge"].configure(text=st["badge"], fg_color="#34C759" if st["passed"] else "#FF3B30")
@@ -1304,16 +1335,21 @@ class IOSOptimizerApp(ctk.CTk):
         dev = self.current_device
         free_gb = dev.free_disk_gb
         total_gb = dev.total_disk_gb
+        compat = get_ios_compatibility_profile(dev.current_ios_version, dev.product_type)
+        pc_min = 1.2 if compat["major"] <= 12 else 2.0
+        ota_min = 4.0 if compat["major"] <= 12 else 8.0
 
         # Storage Card
         if hasattr(self, "lbl_card_storage_free"):
             self.lbl_card_storage_free.configure(text=f"{free_gb:.2f} GB / {total_gb:.0f} GB")
-            if free_gb < 2.0:
+            if free_gb < pc_min:
                 self.lbl_card_storage_status.configure(text="วิกฤต (ต้องเคลียร์ด่วน)", text_color="#FF3B30")
-            elif free_gb < 8.0:
+            elif free_gb < ota_min:
                 self.lbl_card_storage_status.configure(text="OTA ไม่พอ แต่ PC อัปเดตได้", text_color="#FF9500")
             else:
                 self.lbl_card_storage_status.configure(text="พื้นที่เพียงพอ", text_color="#34C759")
+
+        self._render_optimization_guides()
 
         # Battery in card 4 & subtab perf
         health = getattr(dev, "battery_health_pct", 94)
@@ -1505,8 +1541,9 @@ class IOSOptimizerApp(ctk.CTk):
         )
 
     def _on_click_show_speed_guide(self):
-        tips = get_speed_tuning_recommendations()
-        msg_parts = ["💡 5 เทคนิคการตั้งค่า iOS ให้เครื่องเร็วขึ้นทันที 2 เท่า:\n"]
+        ios_ver = self.current_device.current_ios_version if hasattr(self, "current_device") else "17.0"
+        tips = get_speed_tuning_recommendations(ios_version=ios_ver)
+        msg_parts = [f"💡 5 เทคนิคการตั้งค่า iOS {ios_ver} ให้เครื่องเร็วขึ้นทันที 2 เท่า:\n"]
         for t in tips:
             msg_parts.append(f"{t['title']}")
             msg_parts.append(f"  • วิธีตั้งค่า: {t['how']}")
@@ -1687,11 +1724,11 @@ class IOSOptimizerApp(ctk.CTk):
     def _finish_flash_update(self, success):
         self.btn_start_update.configure(state="normal", text="🚀 เริ่มดำเนินการอัปเดต iOS (Start iOS Update)")
         if success:
-            # Update current device version to target version
+            # Update current device version to target version if available
             latest = self.firmware_info.get("latest_signed")
-            if latest:
-                self.current_device.current_ios_version = latest.get("version", "18.1")
-                self.current_device.build_version = latest.get("buildid", "22B91")
+            if latest and latest.get("version"):
+                self.current_device.current_ios_version = latest.get("version")
+                self.current_device.build_version = latest.get("buildid", self.current_device.build_version)
             self._refresh_device_and_firmware()
             messagebox.showinfo("อัปเดตสำเร็จ", "การอัปเดต iOS สำเร็จเรียบร้อยแล้ว!\nอุปกรณ์กำลังรีบูตเข้าสู่หน้าจอพร้อมใช้งาน")
         else:

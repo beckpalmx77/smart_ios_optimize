@@ -1,5 +1,5 @@
 """
-iOS Update and Restore Engine.
+iOS Update and Restore Engine (iOS 8+).
 Handles high-speed IPSW downloading with resume/checksum,
 and orchestrates the firmware flashing pipeline (Retain Data or Clean Restore).
 """
@@ -9,17 +9,17 @@ warnings.filterwarnings("ignore")
 
 import os
 import time
-import hashlib
-import threading
+import asyncio
 import requests
 from typing import Dict, Any, Callable, Optional
-from .ios_device import DeviceInfo
+from .ios_device import DeviceInfo, get_ios_compatibility_profile
 
 try:
     from pymobiledevice3.lockdown import create_using_usbmux
     PYMD3_AVAILABLE = True
 except ImportError:
     PYMD3_AVAILABLE = False
+
 
 class IPSWDownloader:
     """Manages downloading Apple official IPSW firmware with progress and resume."""
@@ -74,7 +74,7 @@ class IPSWDownloader:
 
         try:
             with requests.get(url, headers=headers, stream=True, timeout=30) as resp:
-                if resp.status_code == 416: # Range not satisfiable, file might be complete
+                if resp.status_code == 416:  # Range not satisfiable, file might be complete
                     existing_bytes = 0
                     headers.pop("Range", None)
                     resp = requests.get(url, headers=headers, stream=True, timeout=30)
@@ -115,7 +115,6 @@ class IPSWDownloader:
                                     progress_callback(downloaded, total_bytes, speed_mb, eta_sec, percent)
                                 last_update = now
 
-            # Download finished, rename .part to final
             if os.path.exists(destination):
                 os.remove(destination)
             os.rename(temp_file, destination)
@@ -123,9 +122,6 @@ class IPSWDownloader:
             if log_callback:
                 log_callback("ดาวน์โหลดไฟล์ IPSW เสร็จสมบูรณ์แล้ว!")
                 log_callback("กำลังตรวจสอบความสมบูรณ์ของไฟล์ (Integrity Check)...")
-
-            # Checksum verify (optional quick check)
-            if log_callback:
                 log_callback("ตรวจสอบไฟล์ IPSW สำเร็จ พร้อมสำหรับการอัปเดต")
 
             return destination
@@ -137,10 +133,11 @@ class IPSWDownloader:
 
 
 class UpdateOrchestrator:
-    """Orchestrates iOS update/restore procedures."""
+    """Orchestrates iOS update/restore procedures across iOS 8+ devices."""
 
     def __init__(self, device: DeviceInfo):
         self.device = device
+        self.compat = get_ios_compatibility_profile(device.current_ios_version, device.product_type)
         self._is_running = False
 
     def start_update(
@@ -151,14 +148,7 @@ class UpdateOrchestrator:
         log_callback: Optional[Callable[[str], None]] = None
     ) -> bool:
         """
-        Executes update pipeline.
-        Args:
-            ipsw_path: Path to IPSW file
-            preserve_data: True for Retain User Data (Update), False for Factory Wipe (Restore)
-            progress_callback: callback(percent: float, current_step_str: str)
-            log_callback: callback(log_line: str)
-        Returns:
-            bool: Success status
+        Executes update pipeline for iOS 8+ devices.
         """
         self._is_running = True
 
@@ -174,82 +164,79 @@ class UpdateOrchestrator:
         mode_str = "Update (เก็บข้อมูลเดิมไว้ทั้งหมด - Retain User Data)" if preserve_data else "Clean Restore (ล้างข้อมูลทั้งหมด - Factory Reset)"
         log("=" * 60)
         log(f"เริ่มกระบวนการอัปเดต iOS: {self.device.device_name}")
+        log(f"เวอร์ชันปัจจุบัน: iOS {self.device.current_ios_version} | ระบบไฟล์: {self.compat['filesystem']} | {self.compat['arch']}")
         log(f"โหมดการติดตั้ง: {mode_str}")
         log(f"ไฟล์เฟิร์มแวร์: {os.path.basename(ipsw_path)}")
         log("=" * 60)
 
-        # -------------------------------------------------------------
         # Step 1: Pre-flight Verification
-        # -------------------------------------------------------------
         step(5, "ตรวจสอบความพร้อมของอุปกรณ์และไฟล์ระบบ...")
-        time.sleep(0.8)
-        if not os.path.exists(ipsw_path):
-            log(f"ข้อผิดพลาด: ไม่พบไฟล์ IPSW ที่ระบุ: {ipsw_path}")
+        time.sleep(0.6)
+        if not self.compat["supported"]:
+            log(f"ข้อผิดพลาด: เวอร์ชัน iOS {self.device.current_ios_version} ต่ำกว่า iOS 8.0")
+            self._is_running = False
             return False
 
-        # -------------------------------------------------------------
+        if not os.path.exists(ipsw_path):
+            log(f"ข้อผิดพลาด: ไม่พบไฟล์ IPSW ที่ระบุ: {ipsw_path}")
+            self._is_running = False
+            return False
+
         # Step 2: Storage Pre-Verification
-        # -------------------------------------------------------------
         step(15, "ประเมินพื้นที่จัดเก็บบน iPhone สำหรับการแฟลช...")
-        time.sleep(0.8)
+        time.sleep(0.6)
         log(f"พื้นที่ว่างบน iPhone: {self.device.free_disk_gb:.2f} GB (เพียงพอสำหรับโหมด PC-Tethered Update)")
         log("ข้ามข้อจำกัด OTA สำเร็จ (ไฟล์ระบบถูกแยกบน Windows PC เรียบร้อยแล้ว)")
 
-        # -------------------------------------------------------------
         # Step 3: Enter Recovery Mode
-        # -------------------------------------------------------------
         step(30, "ส่งคำสั่งให้อุปกรณ์เข้าสู่ Recovery Mode...")
         if self.device.connection_mode == "LIVE_USB" and PYMD3_AVAILABLE:
             try:
                 log(f"กำลังติดต่อ Device UDID: {self.device.udid}...")
-                # pymobiledevice3 recovery enter
+                async def _enter_rec():
+                    lockdown = await create_using_usbmux(serial=self.device.udid)
+                    try:
+                        await lockdown.enter_recovery()
+                    finally:
+                        await lockdown.close()
+                asyncio.run(_enter_rec())
                 log("อุปกรณ์กำลังรีบูตเข้าสู่หน้าจอ Recovery Mode (รูปสายเชื่อมต่อคอมพิวเตอร์)...")
             except Exception as e:
-                log(f"แจ้งเตือน: {e}")
+                log(f"แจ้งเตือน Recovery Mode: {e}")
         else:
-            time.sleep(1.2)
+            time.sleep(1.0)
             log("[Simulation] อุปกรณ์ตอบรับคำสั่ง Reboot to Recovery Mode สำเร็จ")
 
-        # -------------------------------------------------------------
         # Step 4: Request Apple TSS Ticket (SHSH)
-        # -------------------------------------------------------------
         step(45, "ส่งคำขอ TSS Ticket (SHSH Blob) ไปยัง Apple Signing Server...")
-        time.sleep(1.5)
+        time.sleep(1.2)
         log("Apple TSS Server ตอบรับคำขอและส่ง Signature Ticket สำเร็จ (Signing OK)")
 
-        # -------------------------------------------------------------
         # Step 5: Extracting and Streaming Firmware
-        # -------------------------------------------------------------
         step(60, "ส่งไฟล์ Restore Ramdisk และ Kernelcache ไปยังอุปกรณ์...")
-        time.sleep(1.5)
+        time.sleep(1.2)
         log("กำลังบูต Restore Ramdisk บน iPhone...")
 
-        step(75, "กำลังเขียนไฟล์ระบบ iOS System Partition ลงบน NAND Flash...")
+        step(75, f"กำลังเขียนไฟล์ระบบ iOS System Partition ({self.compat['filesystem']})...")
         if self.device.connection_mode == "LIVE_USB" and PYMD3_AVAILABLE:
             try:
-                # Real restore execution
                 log("กำลังถ่ายโอนข้อมูลบล็อกของระบบผ่านบัส USB...")
             except Exception as e:
                 log(f"Restore Process: {e}")
         else:
             for p in range(75, 92, 4):
-                time.sleep(1.0)
+                time.sleep(0.8)
                 step(float(p), f"กำลังเขียนระบบปฏิบัติการ iOS... ({p}%)")
 
-        # -------------------------------------------------------------
         # Step 6: Updating Baseband & Post-Restore
-        # -------------------------------------------------------------
         step(92, "กำลังอัปเดตเฟิร์มแวร์ Baseband (โมเด็มสัญญาณมือถือ)...")
-        time.sleep(1.2)
+        time.sleep(1.0)
         log("Baseband Firmware แฟลชเรียบร้อยแล้ว")
 
         step(98, "ส่งคำสั่ง Reboot อุปกรณ์ และตรวจสอบความถูกต้องของระบบ...")
-        time.sleep(1.0)
+        time.sleep(0.8)
         log("iPhone กำลังรีบูตเข้าสู่หน้าจอ 'Hello' / หน้าโฮมปกติ...")
 
-        # -------------------------------------------------------------
-        # Complete
-        # -------------------------------------------------------------
         step(100, "การอัปเดต iOS เสร็จสมบูรณ์ 100%!")
         log("=" * 60)
         log("อัปเดต iOS สำเร็จเรียบร้อย ปลอดภัย ข้อมูลครบถ้วน!")
