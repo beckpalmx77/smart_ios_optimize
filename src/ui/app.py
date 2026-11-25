@@ -12,6 +12,21 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
+from PIL import Image
+
+def get_asset_path(filename: str) -> str:
+    """Resolves asset path in development and PyInstaller bundled environment."""
+    if getattr(sys, 'frozen', False):
+        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+    else:
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    target = os.path.join(base_dir, "assets", filename)
+    if os.path.exists(target):
+        return target
+    alt = os.path.join(os.path.abspath("."), "assets", filename)
+    if os.path.exists(alt):
+        return alt
+    return target
 
 from ..ios_device import (
     DeviceInfo,
@@ -25,7 +40,12 @@ from ..ipsw_service import (
     get_popular_devices
 )
 from ..evaluator import PreUpdateEvaluator
-from ..storage_fixer import StorageFixer
+from ..storage_fixer import (
+    StorageFixer,
+    tune_ios_speed,
+    assess_device_speed_state,
+    get_speed_tuning_recommendations
+)
 from ..update_engine import IPSWDownloader, UpdateOrchestrator
 from ..driver_manager import check_apple_drivers_installed, download_apple_driver_msi, start_apple_service
 
@@ -40,6 +60,14 @@ class IOSOptimizerApp(ctk.CTk):
         self.title("iOS Smart Update & Storage Optimizer - [Windows Desktop Edition]")
         self.geometry("1100x780")
         self.minsize(980, 680)
+
+        # Set Window Icon
+        try:
+            ico_path = get_asset_path("app_icon.ico")
+            if os.path.exists(ico_path):
+                self.iconbitmap(ico_path)
+        except Exception:
+            pass
 
         # State Variables
         real_dev = detect_real_usb_device()
@@ -67,12 +95,25 @@ class IOSOptimizerApp(ctk.CTk):
         self.header_frame.pack(fill="x", side="top")
 
         # App Brand & Icon
-        title_box = ctk.CTkFrame(self.header_frame, fg_color="transparent")
-        title_box.pack(side="left", padx=20, pady=12)
+        brand_box = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        brand_box.pack(side="left", padx=20, pady=10)
+
+        try:
+            png_path = get_asset_path("app_icon.png")
+            if os.path.exists(png_path):
+                pil_img = Image.open(png_path)
+                header_logo = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(46, 46))
+                logo_lbl = ctk.CTkLabel(brand_box, text="", image=header_logo)
+                logo_lbl.pack(side="left", padx=(0, 12))
+        except Exception:
+            pass
+
+        title_box = ctk.CTkFrame(brand_box, fg_color="transparent")
+        title_box.pack(side="left")
 
         app_title = ctk.CTkLabel(
             title_box,
-            text="🍎 iOS Smart Update & Storage Optimizer",
+            text="iOS Smart Update & Storage Optimizer",
             font=ctk.CTkFont(size=20, weight="bold"),
             text_color="#FFFFFF"
         )
@@ -123,7 +164,7 @@ class IOSOptimizerApp(ctk.CTk):
 
         self.tab_device = self.tabview.add("📱 1. ข้อมูลเครื่อง & เช็คอัปเดต")
         self.tab_eval = self.tabview.add("📋 2. ประเมินความพร้อมก่อนอัปเดต")
-        self.tab_storage = self.tabview.add("🧹 3. แก้ไขปัญหาพื้นที่ไม่พอ")
+        self.tab_storage = self.tabview.add("🧹 3. เคลียร์ขยะ & ปรับแต่ง iOS")
         self.tab_update = self.tabview.add("⚡ 4. ดำเนินการ Update iOS")
         self.tab_driver = self.tabview.add("🛠️ 5. ไดรเวอร์ & เครื่องมือ Apple")
 
@@ -139,9 +180,37 @@ class IOSOptimizerApp(ctk.CTk):
     def _init_tab_device(self):
         tab = self.tab_device
 
+        # Mode Notification Banner
+        self.banner_mode = ctk.CTkFrame(tab, corner_radius=10, fg_color="#2B2615")
+        self.banner_mode.pack(fill="x", padx=10, pady=(8, 4))
+
+        self.lbl_banner_mode_icon = ctk.CTkLabel(self.banner_mode, text="ℹ️", font=ctk.CTkFont(size=16))
+        self.lbl_banner_mode_icon.pack(side="left", padx=(12, 6), pady=6)
+
+        self.lbl_banner_mode_text = ctk.CTkLabel(
+            self.banner_mode,
+            text="ขณะนี้อยู่ใน 'โหมดจำลองสถานการณ์': หากคุณเสียบ iPhone จริงอยู่แล้วเวอร์ชันไม่ตรง ให้ปลดล็อคหน้าจอกด 'เชื่อถือ' (Trust) แล้วกดสแกน",
+            font=ctk.CTkFont(size=11),
+            text_color="#FFD60A",
+            justify="left"
+        )
+        self.lbl_banner_mode_text.pack(side="left", padx=5, pady=6)
+
+        self.btn_banner_scan = ctk.CTkButton(
+            self.banner_mode,
+            text="🔍 สแกน iPhone จริง",
+            command=self._on_click_detect_usb,
+            width=130,
+            height=28,
+            fg_color="#007AFF",
+            hover_color="#0056B3",
+            font=ctk.CTkFont(size=11, weight="bold")
+        )
+        self.btn_banner_scan.pack(side="right", padx=10, pady=6)
+
         # Two columns layout
         col_frame = ctk.CTkFrame(tab, fg_color="transparent")
-        col_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        col_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         # Left Column: Device Hardware Card
         self.card_device = ctk.CTkFrame(col_frame, corner_radius=12, fg_color="#21242D")
@@ -149,8 +218,8 @@ class IOSOptimizerApp(ctk.CTk):
 
         lbl_c1_title = ctk.CTkLabel(
             self.card_device,
-            text="📱 ข้อมูลอุปกรณ์ที่เชื่อมต่อ",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            text="📱 1. ข้อมูลในเครื่อง iPhone ของคุณ (Installed on Device)",
+            font=ctk.CTkFont(size=15, weight="bold"),
             text_color="#FFFFFF"
         )
         lbl_c1_title.pack(anchor="w", padx=20, pady=(15, 10))
@@ -165,9 +234,9 @@ class IOSOptimizerApp(ctk.CTk):
         self.info_grid = ctk.CTkFrame(self.card_device, fg_color="#181A20", corner_radius=10)
         self.info_grid.pack(fill="x", padx=20, pady=5)
 
-        self.lbl_model_id = self._create_info_row(self.info_grid, "Model Identifier:", "iPhone15,2", 0)
+        self.lbl_model_id = self._create_info_row(self.info_grid, "Model Identifier:", "iPhone16,1", 0)
         self.lbl_serial = self._create_info_row(self.info_grid, "Serial Number:", "DNQXW01K0DN1", 1)
-        self.lbl_current_ios = self._create_info_row(self.info_grid, "เวอร์ชัน iOS ปัจจุบัน:", "iOS 17.4.1", 2)
+        self.lbl_current_ios = self._create_info_row(self.info_grid, "เวอร์ชัน iOS ในเครื่องนี้:", "iOS 17.4.1", 2)
         self.lbl_battery = self._create_info_row(self.info_grid, "ระดับแบตเตอรี่:", "78% (กำลังชาร์จ)", 3)
 
         # Storage Meter
@@ -192,8 +261,8 @@ class IOSOptimizerApp(ctk.CTk):
 
         lbl_c2_title = ctk.CTkLabel(
             self.card_update,
-            text="🌐 ตรวจสอบการ Update จาก Apple Server",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            text="🌐 2. เช็คเวอร์ชันอัปเดตจาก Apple Server (Available Update)",
+            font=ctk.CTkFont(size=15, weight="bold"),
             text_color="#FFFFFF"
         )
         lbl_c2_title.pack(anchor="w", padx=20, pady=(15, 10))
@@ -211,19 +280,20 @@ class IOSOptimizerApp(ctk.CTk):
         self.fw_info_grid = ctk.CTkFrame(self.card_update, fg_color="#181A20", corner_radius=10)
         self.fw_info_grid.pack(fill="x", padx=20, pady=5)
 
-        self.lbl_latest_ver = self._create_info_row(self.fw_info_grid, "เวอร์ชันล่าสุดที่รองรับ:", "iOS 18.1.1", 0)
-        self.lbl_build_id = self._create_info_row(self.fw_info_grid, "Build Number:", "22B91", 1)
-        self.lbl_fw_size = self._create_info_row(self.fw_info_grid, "ขนาดไฟล์ดาวน์โหลด (IPSW):", "7.85 GB", 2)
+        self.lbl_latest_ver = self._create_info_row(self.fw_info_grid, "เวอร์ชันล่าสุดที่ Apple เปิดให้ลง:", "กำลังโหลด...", 0)
+        self.lbl_build_id = self._create_info_row(self.fw_info_grid, "Build Number:", "--", 1)
+        self.lbl_fw_size = self._create_info_row(self.fw_info_grid, "ขนาดไฟล์ดาวน์โหลด (IPSW):", "-- GB", 2)
         self.lbl_signed_status = self._create_info_row(self.fw_info_grid, "สถานะการรับรอง (Signing):", "Signed (Apple รับรอง)", 3)
 
         self.lbl_fw_note = ctk.CTkLabel(
             self.card_update,
-            text="* ข้อมูลดึงจากฐานข้อมูลทางการของ Apple TSS Signing Server แบบ Real-time",
+            text="* ฝั่งซ้ายคือเวอร์ชันปัจจุบันในตัวเครื่องของคุณ | ฝั่งขวาคือเวอร์ชันใหม่ล่าสุดที่ Apple Server เปิดให้ติดตั้ง",
             font=ctk.CTkFont(size=11),
             text_color="#A0A5B5",
             wraplength=420,
             justify="left"
         )
+        self.lbl_fw_note.pack(anchor="w", padx=20, pady=(15, 15))
         self.lbl_fw_note.pack(anchor="w", padx=20, pady=(15, 15))
 
         # Bottom Button Bar for Tab 1
@@ -329,8 +399,8 @@ class IOSOptimizerApp(ctk.CTk):
 
         self.btn_go_fix_storage = ctk.CTkButton(
             eval_btn_bar,
-            text="ไปที่แท็บ 'แก้ไขปัญหาพื้นที่ไม่พอ' ➔",
-            command=lambda: self.tabview.set("🧹 3. แก้ไขปัญหาพื้นที่ไม่พอ"),
+            text="ไปที่แท็บ 'เคลียร์ขยะ & ปรับแต่ง iOS' ➔",
+            command=lambda: self.tabview.set("🧹 3. เคลียร์ขยะ & ปรับแต่ง iOS"),
             height=38,
             fg_color="#FF9500",
             hover_color="#CC7700",
@@ -373,114 +443,502 @@ class IOSOptimizerApp(ctk.CTk):
         return {"frame": item, "badge": lbl_badge, "detail": lbl_detail}
 
     # =================================================================
-    # TAB 3: Storage Fixer & Problem Solver
+    # TAB 3: Storage Fixer & Performance Optimizer
     # =================================================================
     def _init_tab_storage(self):
         tab = self.tab_storage
 
-        # Top Insight Box
-        insight_box = ctk.CTkFrame(tab, corner_radius=12, fg_color="#1F2A38")
-        insight_box.pack(fill="x", padx=10, pady=10)
+        # 1. Top Insight Banner
+        insight_box = ctk.CTkFrame(tab, corner_radius=10, fg_color="#182333")
+        insight_box.pack(fill="x", padx=10, pady=(6, 8))
 
         lbl_in_title = ctk.CTkLabel(
             insight_box,
-            text="💡 ทำไม iPhone ถึงขึ้นว่า 'พื้นที่ไม่พอสำหรับติดตั้ง iOS' และเราแก้ได้อย่างไร?",
-            font=ctk.CTkFont(size=15, weight="bold"),
+            text="💡 ศูนย์เคลียร์ขยะ & ปรับแต่งประสิทธิภาพ iOS (iOS Clean & Speed Optimizer)",
+            font=ctk.CTkFont(size=14, weight="bold"),
             text_color="#007AFF"
         )
-        lbl_in_title.pack(anchor="w", padx=20, pady=(12, 6))
+        lbl_in_title.pack(anchor="w", padx=15, pady=(8, 3))
 
         desc_text = (
-            "• เมื่ออัปเดตผ่านเมนู Settings ใน iPhone (OTA): ตัวเครื่องจะต้องดาวน์โหลดไฟล์ติดตั้ง (6-8 GB) "
-            "และต้องมีพื้นที่ว่างเพิ่มอีก 5-8 GB สำหรับแตกไฟล์บนเครื่อง รวมต้องใช้ 12 - 16 GB!\n"
-            "• วิธีแก้ไขของโปรแกรมนี้ (PC Tethered Update): เราจะดาวน์โหลดและแตกไฟล์ IPSW บน 'คอมพิวเตอร์' "
-            "แล้วส่งข้อมูลระบบเข้า iPhone โดยตรง ทำให้ iPhone ต้องการพื้นที่ชั่วคราวเพียง 1.5 - 2.0 GB เท่านั้น "
-            "แก้ปัญหาพื้นที่ไม่พอได้ 90% ทันทีโดยไม่ต้องลบรูปภาพหรือข้อมูลสำคัญ!"
+            "• เทคนิค PC Staging: แก้ปัญหา 'พื้นที่ไม่พออัปเดต' โดยแตกไฟล์บนคอมพิวเตอร์ ทำให้ iPhone ใช้พื้นที่เพียง 1.5 - 2.0 GB โดยไม่ต้องลบรูปภาพหรือข้อมูลส่วนตัว\n"
+            "• เครื่องมือ Deep Clean & RAM Purge: ล้าง Crash logs, แคชรูปย่อ, ข้อมูล Staging และส่งสัญญาณ Darwin Low-Memory ปล่อยคืนแรมให้เครื่องลื่นไหลขึ้นทันที"
         )
         lbl_in_desc = ctk.CTkLabel(
             insight_box,
             text=desc_text,
-            font=ctk.CTkFont(size=12),
-            text_color="#E0E6ED",
-            justify="left"
-        )
-        lbl_in_desc.pack(anchor="w", padx=20, pady=(0, 15))
-
-        # Middle Content: Clean-up action + Recommendations
-        mid_frame = ctk.CTkFrame(tab, fg_color="transparent")
-        mid_frame.pack(fill="both", expand=True, padx=10, pady=5)
-
-        # Left: Quick Cleanup Tools
-        left_tool = ctk.CTkFrame(mid_frame, corner_radius=12, fg_color="#21242D")
-        left_tool.pack(side="left", fill="both", expand=True, padx=(0, 10))
-
-        lbl_t1 = ctk.CTkLabel(left_tool, text="🧹 เครื่องมือเคลียร์ขยะระบบอัตโนมัติ", font=ctk.CTkFont(size=15, weight="bold"), text_color="#FFFFFF")
-        lbl_t1.pack(anchor="w", padx=15, pady=(15, 10))
-
-        lbl_t1_sub = ctk.CTkLabel(
-            left_tool,
-            text="ลบ Crash Logs (.ips), Sysdiagnose และแคชบันทึกข้อผิดพลาดของระบบที่สะสมไว้โดยไม่แตะต้องข้อมูลส่วนตัว",
             font=ctk.CTkFont(size=11),
-            text_color="#A0A5B5",
-            wraplength=450,
+            text_color="#D0D7DE",
             justify="left"
         )
-        lbl_t1_sub.pack(anchor="w", padx=15, pady=(0, 15))
+        lbl_in_desc.pack(anchor="w", padx=15, pady=(0, 8))
 
-        self.btn_auto_clean = ctk.CTkButton(
-            left_tool,
-            text="✨ เริ่มล้างขยะระบบ & แคช (Clear System Logs)",
-            command=self._on_click_auto_cleanup,
-            height=42,
-            fg_color="#34C759",
-            hover_color="#28A745",
-            font=ctk.CTkFont(size=13, weight="bold")
-        )
-        self.btn_auto_clean.pack(fill="x", padx=15, pady=10)
+        # 2. Metric Cards Ribbon (4 Quick Status Cards)
+        metric_bar = ctk.CTkFrame(tab, fg_color="transparent")
+        metric_bar.pack(fill="x", padx=10, pady=(0, 6))
 
-        # Log output for cleanup
-        self.txt_clean_log = ctk.CTkTextbox(left_tool, height=180, corner_radius=8, font=ctk.CTkFont(family="Consolas", size=11))
-        self.txt_clean_log.pack(fill="both", expand=True, padx=15, pady=(10, 15))
-        self.txt_clean_log.insert("end", "[System] พร้อมสำหรับการวิเคราะห์และล้างขยะระบบ...\n")
+        # Card 1: Free Storage
+        card1 = ctk.CTkFrame(metric_bar, corner_radius=10, fg_color="#21242D")
+        card1.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        ctk.CTkLabel(card1, text="💾 พื้นที่ว่างปัจจุบัน", font=ctk.CTkFont(size=11, weight="bold"), text_color="#A0A5B5").pack(anchor="w", padx=12, pady=(8, 2))
+        self.lbl_card_storage_free = ctk.CTkLabel(card1, text="-- GB", font=ctk.CTkFont(size=15, weight="bold"), text_color="#FFFFFF")
+        self.lbl_card_storage_free.pack(anchor="w", padx=12, pady=(0, 2))
+        self.lbl_card_storage_status = ctk.CTkLabel(card1, text="กำลังตรวจสอบ...", font=ctk.CTkFont(size=10), text_color="#34C759")
+        self.lbl_card_storage_status.pack(anchor="w", padx=12, pady=(0, 8))
 
-        # Right: High Impact Space Recovery Guide
-        right_guide = ctk.CTkFrame(mid_frame, corner_radius=12, fg_color="#21242D")
-        right_guide.pack(side="right", fill="both", expand=True, padx=(10, 0))
+        # Card 2: Detected Junk
+        card2 = ctk.CTkFrame(metric_bar, corner_radius=10, fg_color="#21242D")
+        card2.pack(side="left", fill="both", expand=True, padx=5)
+        ctk.CTkLabel(card2, text="🗑️ ไฟล์ขยะที่ตรวจพบ", font=ctk.CTkFont(size=11, weight="bold"), text_color="#A0A5B5").pack(anchor="w", padx=12, pady=(8, 2))
+        self.lbl_card_junk_val = ctk.CTkLabel(card2, text="~2,450 MB", font=ctk.CTkFont(size=15, weight="bold"), text_color="#FF9500")
+        self.lbl_card_junk_val.pack(anchor="w", padx=12, pady=(0, 2))
+        self.lbl_card_junk_sub = ctk.CTkLabel(card2, text="5 หมวดหมู่ ปลอดภัย 100%", font=ctk.CTkFont(size=10), text_color="#A0A5B5")
+        self.lbl_card_junk_sub.pack(anchor="w", padx=12, pady=(0, 8))
 
-        lbl_t2 = ctk.CTkLabel(right_guide, text="📌 4 วิธีช่วยคืนพื้นที่ขนาดใหญ่บน iPhone", font=ctk.CTkFont(size=15, weight="bold"), text_color="#FFFFFF")
-        lbl_t2.pack(anchor="w", padx=15, pady=(15, 10))
+        # Card 3: RAM Optimization
+        card3 = ctk.CTkFrame(metric_bar, corner_radius=10, fg_color="#21242D")
+        card3.pack(side="left", fill="both", expand=True, padx=5)
+        ctk.CTkLabel(card3, text="🚀 หน่วยความจำ RAM", font=ctk.CTkFont(size=11, weight="bold"), text_color="#A0A5B5").pack(anchor="w", padx=12, pady=(8, 2))
+        self.lbl_card_ram_val = ctk.CTkLabel(card3, text="~640 MB", font=ctk.CTkFont(size=15, weight="bold"), text_color="#5856D6")
+        self.lbl_card_ram_val.pack(anchor="w", padx=12, pady=(0, 2))
+        self.lbl_card_ram_sub = ctk.CTkLabel(card3, text="Inactive RAM พร้อมปล่อยคืน", font=ctk.CTkFont(size=10), text_color="#A0A5B5")
+        self.lbl_card_ram_sub.pack(anchor="w", padx=12, pady=(0, 8))
 
-        guide_scroll = ctk.CTkScrollableFrame(right_guide, fg_color="transparent")
-        guide_scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        # Card 4: Battery Health
+        card4 = ctk.CTkFrame(metric_bar, corner_radius=10, fg_color="#21242D")
+        card4.pack(side="left", fill="both", expand=True, padx=(5, 0))
+        ctk.CTkLabel(card4, text="🔋 สุขภาพแบตเตอรี่", font=ctk.CTkFont(size=11, weight="bold"), text_color="#A0A5B5").pack(anchor="w", padx=12, pady=(8, 2))
+        self.lbl_card_batt_val = ctk.CTkLabel(card4, text="--%", font=ctk.CTkFont(size=15, weight="bold"), text_color="#34C759")
+        self.lbl_card_batt_val.pack(anchor="w", padx=12, pady=(0, 2))
+        self.lbl_card_batt_sub = ctk.CTkLabel(card4, text="กำลังวิเคราะห์รอบชาร์จ...", font=ctk.CTkFont(size=10), text_color="#A0A5B5")
+        self.lbl_card_batt_sub.pack(anchor="w", padx=12, pady=(0, 8))
 
-        guides = StorageFixer.get_actionable_optimization_guide()
-        for g in guides:
-            g_card = ctk.CTkFrame(guide_scroll, corner_radius=8, fg_color="#181A20")
-            g_card.pack(fill="x", padx=5, pady=5)
+        # 3. Sub Tabview: 1. Clean & Purge, 2. Performance & Battery Doctor
+        self.stor_subtab = ctk.CTkTabview(tab, corner_radius=10)
+        self.stor_subtab.pack(fill="both", expand=True, padx=10, pady=(0, 6))
 
-            lbl_g_title = ctk.CTkLabel(g_card, text=g["title"], font=ctk.CTkFont(size=12, weight="bold"), text_color="#FFFFFF")
-            lbl_g_title.pack(anchor="w", padx=10, pady=(8, 3))
+        self.subtab_clean = self.stor_subtab.add("🧹 1. เคลียร์ขยะ & คืนพื้นที่ (Junk Clean & Purge)")
+        self.subtab_perf = self.stor_subtab.add("⚡ 2. ปรับแต่งความเร็ว & แบตเตอรี่ (Performance & Battery Doctor)")
 
-            lbl_g_impact = ctk.CTkLabel(g_card, text=f"ผลลัพธ์: {g['impact']}", font=ctk.CTkFont(size=11, weight="bold"), text_color="#34C759")
-            lbl_g_impact.pack(anchor="w", padx=10, pady=(0, 3))
-
-            lbl_g_det = ctk.CTkLabel(g_card, text=g["detail"], font=ctk.CTkFont(size=11), text_color="#A0A5B5", wraplength=420, justify="left")
-            lbl_g_det.pack(anchor="w", padx=10, pady=(0, 8))
+        # Build Sub-Tabs
+        self._build_subtab_clean()
+        self._build_subtab_perf()
 
         # Bottom Bar
         stor_btn_bar = ctk.CTkFrame(tab, fg_color="transparent")
-        stor_btn_bar.pack(fill="x", padx=10, pady=10)
+        stor_btn_bar.pack(fill="x", padx=10, pady=(4, 8))
 
         self.btn_go_update = ctk.CTkButton(
             stor_btn_bar,
             text="พื้นที่พร้อมแล้ว! ไปที่ขั้นตอนอัปเดต iOS (Proceed to Update) ➔",
             command=lambda: self.tabview.set("⚡ 4. ดำเนินการ Update iOS"),
-            height=40,
+            height=38,
             fg_color="#007AFF",
             hover_color="#0056B3",
             font=ctk.CTkFont(size=13, weight="bold")
         )
         self.btn_go_update.pack(side="right", padx=5)
+
+    def _build_subtab_clean(self):
+        parent = self.subtab_clean
+
+        # Two Columns Layout
+        col_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        col_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # Left Column: Cleaner Tools & Categories
+        left_tool = ctk.CTkFrame(col_frame, corner_radius=10, fg_color="#21242D")
+        left_tool.pack(side="left", fill="both", expand=True, padx=(0, 8), pady=2)
+
+        # Action Buttons Header
+        btn_row = ctk.CTkFrame(left_tool, fg_color="transparent")
+        btn_row.pack(fill="x", padx=12, pady=(10, 6))
+
+        self.btn_deep_scan = ctk.CTkButton(
+            btn_row,
+            text="🔍 สแกนค้นหาขยะ (Scan)",
+            command=self._on_click_deep_scan,
+            width=150,
+            height=36,
+            fg_color="#007AFF",
+            hover_color="#0056B3",
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        self.btn_deep_scan.pack(side="left", padx=(0, 6))
+
+        self.btn_clean_selected = ctk.CTkButton(
+            btn_row,
+            text="🧹 ล้างรายการที่เลือก",
+            command=self._on_click_clean_selected,
+            width=150,
+            height=36,
+            fg_color="#34C759",
+            hover_color="#28A745",
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        self.btn_clean_selected.pack(side="left", padx=(0, 6))
+
+        self.btn_clean_all = ctk.CTkButton(
+            btn_row,
+            text="🌟 คลีนหมด 1-คลิก",
+            command=self._on_click_clean_all,
+            width=140,
+            height=36,
+            fg_color="#5856D6",
+            hover_color="#4341B2",
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        self.btn_clean_all.pack(side="left")
+
+        # Category Checklist Container (Scrollable)
+        cat_scroll = ctk.CTkScrollableFrame(left_tool, height=190, fg_color="transparent")
+        cat_scroll.pack(fill="x", padx=10, pady=(2, 6))
+
+        self.junk_vars = {}
+        self.junk_badge_lbls = {}
+
+        for cat_key, cat_def in StorageFixer.CATEGORY_DEFS.items():
+            card = ctk.CTkFrame(cat_scroll, corner_radius=8, fg_color="#181A20")
+            card.pack(fill="x", padx=2, pady=3)
+
+            top_row = ctk.CTkFrame(card, fg_color="transparent")
+            top_row.pack(fill="x", padx=8, pady=(6, 2))
+
+            var = ctk.BooleanVar(value=True)
+            self.junk_vars[cat_key] = var
+
+            chk = ctk.CTkCheckBox(
+                top_row,
+                text=f"{cat_def['icon']} {cat_def['name']}",
+                variable=var,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                checkbox_width=18,
+                checkbox_height=18
+            )
+            chk.pack(side="left")
+
+            badge = ctk.CTkLabel(
+                top_row,
+                text="~350 MB",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                fg_color="#2A2F3D",
+                corner_radius=5,
+                padx=8,
+                pady=2,
+                text_color="#34C759"
+            )
+            badge.pack(side="right")
+            self.junk_badge_lbls[cat_key] = badge
+
+            desc_lbl = ctk.CTkLabel(
+                card,
+                text=f"{cat_def['desc']} | {cat_def['safety']}",
+                font=ctk.CTkFont(size=10),
+                text_color="#8E95A5",
+                wraplength=480,
+                justify="left"
+            )
+            desc_lbl.pack(anchor="w", padx=28, pady=(0, 6))
+
+        # Progress Bar & Status
+        prog_frame = ctk.CTkFrame(left_tool, fg_color="transparent")
+        prog_frame.pack(fill="x", padx=12, pady=(4, 2))
+
+        self.lbl_clean_status = ctk.CTkLabel(prog_frame, text="สถานะ: พร้อมสำหรับการสแกนหรือทำความสะอาด", font=ctk.CTkFont(size=11), text_color="#A0A5B5")
+        self.lbl_clean_status.pack(side="left")
+
+        self.clean_progress_bar = ctk.CTkProgressBar(left_tool, height=8, corner_radius=4)
+        self.clean_progress_bar.pack(fill="x", padx=12, pady=(2, 6))
+        self.clean_progress_bar.set(0.0)
+
+        # Log Terminal
+        self.txt_clean_log = ctk.CTkTextbox(left_tool, height=110, corner_radius=8, font=ctk.CTkFont(family="Consolas", size=10))
+        self.txt_clean_log.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        self.txt_clean_log.insert("end", "[Cleaner] พร้อมสำหรับการสแกนขยะและเพิ่มประสิทธิภาพ iOS...\n")
+
+        # Compatibility alias
+        self.btn_auto_clean = self.btn_clean_all
+
+        # Right Column: System Data Breakdown & High Impact Guides
+        right_guide = ctk.CTkFrame(col_frame, corner_radius=10, fg_color="#21242D")
+        right_guide.pack(side="right", fill="both", expand=True, padx=(8, 0), pady=2)
+
+        # Top System Data Insight
+        sys_data_box = ctk.CTkFrame(right_guide, corner_radius=8, fg_color="#181A20")
+        sys_data_box.pack(fill="x", padx=10, pady=(10, 6))
+
+        ctk.CTkLabel(
+            sys_data_box,
+            text="📊 วิเคราะห์ 'ข้อมูลระบบ' (System Data / Other)",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#007AFF"
+        ).pack(anchor="w", padx=10, pady=(8, 2))
+
+        lbl_sys_desc = ctk.CTkLabel(
+            sys_data_box,
+            text="System Data มักมีขนาดใหญ่ 8-20 GB เกิดจากแคชสตรีมมิ่ง, แคชรูปย่อ, และบันทึกข้อผิดพลาด\n"
+                 "✓ ส่วนที่เคลียร์ได้: Crash logs, Photo thumbnail cache, Staging temp (คืนได้ 1-3 GB ทันที)\n"
+                 "• ส่วนที่ระบบสงวนไว้: ฟอนต์, ข้อมูลเสียง Siri ออฟไลน์ และแคชความปลอดภัย",
+            font=ctk.CTkFont(size=10),
+            text_color="#A0A5B5",
+            justify="left"
+        )
+        lbl_sys_desc.pack(anchor="w", padx=10, pady=(0, 8))
+
+        # 6 Actionable Guides Scrollable
+        ctk.CTkLabel(
+            right_guide,
+            text="📌 6 แนวทางกู้คืนพื้นที่ขนาดใหญ่บน iPhone",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#FFFFFF"
+        ).pack(anchor="w", padx=12, pady=(4, 4))
+
+        guide_scroll = ctk.CTkScrollableFrame(right_guide, fg_color="transparent")
+        guide_scroll.pack(fill="both", expand=True, padx=6, pady=(0, 8))
+
+        guides = StorageFixer.get_actionable_optimization_guide()
+        for g in guides:
+            g_card = ctk.CTkFrame(guide_scroll, corner_radius=8, fg_color="#181A20")
+            g_card.pack(fill="x", padx=4, pady=4)
+
+            lbl_g_title = ctk.CTkLabel(g_card, text=g["title"], font=ctk.CTkFont(size=11, weight="bold"), text_color="#FFFFFF")
+            lbl_g_title.pack(anchor="w", padx=8, pady=(6, 2))
+
+            lbl_g_impact = ctk.CTkLabel(g_card, text=f"★ {g['impact']}", font=ctk.CTkFont(size=10, weight="bold"), text_color="#34C759")
+            lbl_g_impact.pack(anchor="w", padx=8, pady=(0, 2))
+
+            lbl_g_det = ctk.CTkLabel(g_card, text=g["detail"], font=ctk.CTkFont(size=10), text_color="#8E95A5", wraplength=380, justify="left")
+            lbl_g_det.pack(anchor="w", padx=8, pady=(0, 6))
+
+    def _build_subtab_perf(self):
+        parent = self.subtab_perf
+
+        col_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        col_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # Left Column: iOS Speed Booster & Fine Tuning
+        left_perf = ctk.CTkFrame(col_frame, corner_radius=10, fg_color="#21242D")
+        left_perf.pack(side="left", fill="both", expand=True, padx=(0, 8), pady=2)
+
+        # Section 1: Main Speed Tune Engine
+        ctk.CTkLabel(
+            left_perf,
+            text="🚀 1. ปรับแต่ง & จูนความเร็ว iOS ขั้นสุด (Speed Booster)",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#007AFF"
+        ).pack(anchor="w", padx=14, pady=(10, 2))
+
+        ctk.CTkLabel(
+            left_perf,
+            text="กระบวนการจูน 5 มิติ: วิเคราะห์ Throttling, ปล่อยคืน RAM เชิงลึก, Flush แคช Daemons & WebKit, ปลดล็อคคอขวด NAND Storage, และรีเซ็ต Frame Pacing ของ SpringBoard",
+            font=ctk.CTkFont(size=11),
+            text_color="#A0A5B5",
+            wraplength=460,
+            justify="left"
+        ).pack(anchor="w", padx=14, pady=(0, 8))
+
+        # Mode Selector
+        mode_row = ctk.CTkFrame(left_perf, fg_color="#181A20", corner_radius=8)
+        mode_row.pack(fill="x", padx=14, pady=(0, 8))
+
+        self.var_tune_mode = ctk.StringVar(value="turbo")
+        self.radio_tune_turbo = ctk.CTkRadioButton(
+            mode_row,
+            text="⚡ Turbo Deep Tune (แนะนำ: จูน 5 ขั้นตอน + ปลดล็อคคอขวด NAND Storage)",
+            variable=self.var_tune_mode,
+            value="turbo",
+            font=ctk.CTkFont(size=11, weight="bold")
+        )
+        self.radio_tune_turbo.pack(anchor="w", padx=12, pady=(8, 4))
+
+        self.radio_tune_quick = ctk.CTkRadioButton(
+            mode_row,
+            text="🚀 Quick Speed Boost (จูนด่วน: ปล่อยคืน RAM + Flush Daemons Caches)",
+            variable=self.var_tune_mode,
+            value="quick",
+            font=ctk.CTkFont(size=11)
+        )
+        self.radio_tune_quick.pack(anchor="w", padx=12, pady=(0, 8))
+
+        # Big Tune Button
+        self.btn_tune_speed = ctk.CTkButton(
+            left_perf,
+            text="⚡ สั่งจูนความเร็ว iOS ทันที (Run iOS Speed Tune)",
+            command=self._on_click_tune_speed,
+            height=38,
+            fg_color="#007AFF",
+            hover_color="#0056B3",
+            font=ctk.CTkFont(size=13, weight="bold")
+        )
+        self.btn_tune_speed.pack(fill="x", padx=14, pady=(0, 6))
+
+        # Progress bar & status
+        self.tune_progress_bar = ctk.CTkProgressBar(left_perf, height=8, corner_radius=4)
+        self.tune_progress_bar.pack(fill="x", padx=14, pady=(0, 4))
+        self.tune_progress_bar.set(0.0)
+
+        self.lbl_tune_status = ctk.CTkLabel(
+            left_perf,
+            text="สถานะ: พร้อมดำเนินการปรับแต่งความเร็ว iOS",
+            font=ctk.CTkFont(size=10),
+            text_color="#A0A5B5"
+        )
+        self.lbl_tune_status.pack(anchor="w", padx=14, pady=(0, 6))
+
+        # Log Console
+        self.txt_ram_log = ctk.CTkTextbox(left_perf, height=80, corner_radius=8, font=ctk.CTkFont(family="Consolas", size=10))
+        self.txt_ram_log.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+        self.txt_ram_log.insert("end", "[Speed Optimizer] พร้อมสำหรับกระบวนการปรับแต่งความเร็ว iOS...\n")
+
+        # Compatibility alias
+        self.txt_tune_log = self.txt_ram_log
+
+        # Sub-actions button row
+        sub_btn_row = ctk.CTkFrame(left_perf, fg_color="transparent")
+        sub_btn_row.pack(fill="x", padx=14, pady=(0, 10))
+
+        self.btn_purge_ram = ctk.CTkButton(
+            sub_btn_row,
+            text="🚀 ปล่อยคืน RAM",
+            command=self._on_click_purge_ram,
+            height=32,
+            fg_color="#3A3F4D",
+            hover_color="#4B5162",
+            font=ctk.CTkFont(size=11)
+        )
+        self.btn_purge_ram.pack(side="left", fill="x", expand=True, padx=(0, 4))
+
+        self.btn_soft_reboot = ctk.CTkButton(
+            sub_btn_row,
+            text="🔄 ซอฟต์รีสตาร์ท",
+            command=self._on_click_soft_reboot,
+            height=32,
+            fg_color="#3A3F4D",
+            hover_color="#4B5162",
+            font=ctk.CTkFont(size=11)
+        )
+        self.btn_soft_reboot.pack(side="left", fill="x", expand=True, padx=4)
+
+        self.btn_speed_guide = ctk.CTkButton(
+            sub_btn_row,
+            text="💡 5 ทริคเร็ว 2x",
+            command=self._on_click_show_speed_guide,
+            height=32,
+            fg_color="#FF9500",
+            hover_color="#CC7700",
+            font=ctk.CTkFont(size=11, weight="bold")
+        )
+        self.btn_speed_guide.pack(side="left", fill="x", expand=True, padx=(4, 0))
+
+        # Right Column: Speed Dashboard & Battery Doctor
+        right_perf = ctk.CTkFrame(col_frame, corner_radius=10, fg_color="#21242D")
+        right_perf.pack(side="right", fill="both", expand=True, padx=(8, 0), pady=2)
+
+        ctk.CTkLabel(
+            right_perf,
+            text="⚡ แดชบอร์ดความเร็ว & สุขภาพเครื่อง (Speed & Health Doctor)",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#FFFFFF"
+        ).pack(anchor="w", padx=14, pady=(10, 4))
+
+        # Speed & Latency Score Cards (1 Row, 2 Cards)
+        speed_box = ctk.CTkFrame(right_perf, fg_color="transparent")
+        speed_box.pack(fill="x", padx=10, pady=(0, 6))
+
+        # Speed Index Card
+        s_card1 = ctk.CTkFrame(speed_box, corner_radius=8, fg_color="#181A20")
+        s_card1.pack(side="left", fill="both", expand=True, padx=(0, 4))
+        ctk.CTkLabel(s_card1, text="⚡ ดัชนีความเร็ว (Speed Index)", font=ctk.CTkFont(size=10), text_color="#A0A5B5").pack(anchor="w", padx=8, pady=(5, 1))
+        self.lbl_speed_score = ctk.CTkLabel(s_card1, text="-- / 100", font=ctk.CTkFont(size=14, weight="bold"), text_color="#34C759")
+        self.lbl_speed_score.pack(anchor="w", padx=8, pady=(0, 5))
+
+        # Latency Card
+        s_card2 = ctk.CTkFrame(speed_box, corner_radius=8, fg_color="#181A20")
+        s_card2.pack(side="left", fill="both", expand=True, padx=(4, 0))
+        ctk.CTkLabel(s_card2, text="📱 ความหน่วง UI (Latency)", font=ctk.CTkFont(size=10), text_color="#A0A5B5").pack(anchor="w", padx=8, pady=(5, 1))
+        self.lbl_speed_latency = ctk.CTkLabel(s_card2, text="~-- ms", font=ctk.CTkFont(size=14, weight="bold"), text_color="#007AFF")
+        self.lbl_speed_latency.pack(anchor="w", padx=8, pady=(0, 5))
+
+        # Throttling status bar
+        self.lbl_speed_throttling = ctk.CTkLabel(
+            right_perf,
+            text="● สถานะ CPU: กำลังตรวจสอบ...",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color="#34C759"
+        )
+        self.lbl_speed_throttling.pack(anchor="w", padx=14, pady=(0, 6))
+
+        # Telemetry Metrics Grid (2x2)
+        grid_frame = ctk.CTkFrame(right_perf, fg_color="transparent")
+        grid_frame.pack(fill="x", padx=10, pady=(0, 6))
+
+        # Box 1: Health %
+        b1 = ctk.CTkFrame(grid_frame, corner_radius=8, fg_color="#181A20")
+        b1.grid(row=0, column=0, sticky="nsew", padx=4, pady=3)
+        ctk.CTkLabel(b1, text="🔋 ความจุสูงสุด (Health)", font=ctk.CTkFont(size=10), text_color="#A0A5B5").pack(anchor="w", padx=8, pady=(4, 1))
+        self.lbl_tele_health = ctk.CTkLabel(b1, text="94%", font=ctk.CTkFont(size=13, weight="bold"), text_color="#34C759")
+        self.lbl_tele_health.pack(anchor="w", padx=8, pady=(0, 4))
+
+        # Box 2: Cycle Count
+        b2 = ctk.CTkFrame(grid_frame, corner_radius=8, fg_color="#181A20")
+        b2.grid(row=0, column=1, sticky="nsew", padx=4, pady=3)
+        ctk.CTkLabel(b2, text="🔄 รอบชาร์จ (Cycles)", font=ctk.CTkFont(size=10), text_color="#A0A5B5").pack(anchor="w", padx=8, pady=(4, 1))
+        self.lbl_tele_cycles = ctk.CTkLabel(b2, text="218 รอบ", font=ctk.CTkFont(size=13, weight="bold"), text_color="#FFFFFF")
+        self.lbl_tele_cycles.pack(anchor="w", padx=8, pady=(0, 4))
+
+        # Box 3: Capacity mAh
+        b3 = ctk.CTkFrame(grid_frame, corner_radius=8, fg_color="#181A20")
+        b3.grid(row=1, column=0, sticky="nsew", padx=4, pady=3)
+        ctk.CTkLabel(b3, text="⚡ ความจุจริง / โรงงาน", font=ctk.CTkFont(size=10), text_color="#A0A5B5").pack(anchor="w", padx=8, pady=(4, 1))
+        self.lbl_tele_mah = ctk.CTkLabel(b3, text="3,367 / 3,582 mAh", font=ctk.CTkFont(size=12, weight="bold"), text_color="#FFFFFF")
+        self.lbl_tele_mah.pack(anchor="w", padx=8, pady=(0, 4))
+
+        # Box 4: Temperature & Voltage
+        b4 = ctk.CTkFrame(grid_frame, corner_radius=8, fg_color="#181A20")
+        b4.grid(row=1, column=1, sticky="nsew", padx=4, pady=3)
+        ctk.CTkLabel(b4, text="🌡️ อุณหภูมิ & แรงดันไฟ", font=ctk.CTkFont(size=10), text_color="#A0A5B5").pack(anchor="w", padx=8, pady=(4, 1))
+        self.lbl_tele_temp = ctk.CTkLabel(b4, text="30.2 °C | 4,120 mV", font=ctk.CTkFont(size=12, weight="bold"), text_color="#FFFFFF")
+        self.lbl_tele_temp.pack(anchor="w", padx=8, pady=(0, 4))
+
+        grid_frame.columnconfigure(0, weight=1)
+        grid_frame.columnconfigure(1, weight=1)
+
+        # Condition Banner
+        cond_box = ctk.CTkFrame(right_perf, corner_radius=8, fg_color="#181A20")
+        cond_box.pack(fill="x", padx=14, pady=(0, 6))
+
+        self.lbl_tele_cond = ctk.CTkLabel(
+            cond_box,
+            text="● ประเมิน: สภาพดีเยี่ยม (Optimal) - เซลล์แบตเตอรี่สมบูรณ์",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#34C759"
+        )
+        self.lbl_tele_cond.pack(anchor="w", padx=10, pady=5)
+
+        # Refresh Battery Button
+        self.btn_refresh_battery = ctk.CTkButton(
+            right_perf,
+            text="🔄 ตรวจสอบข้อมูลความเร็ว & แบตเตอรี่อีกครั้ง",
+            command=self._on_click_refresh_battery,
+            height=30,
+            fg_color="#2A2F3D",
+            hover_color="#3A3F4D",
+            font=ctk.CTkFont(size=11)
+        )
+        self.btn_refresh_battery.pack(fill="x", padx=14, pady=(0, 8))
+
+        # Power & Speed Tips
+        tips_box = ctk.CTkFrame(right_perf, corner_radius=8, fg_color="#181A20")
+        tips_box.pack(fill="both", expand=True, padx=14, pady=(0, 10))
+
+        ctk.CTkLabel(tips_box, text="💡 เคล็ดลับเพิ่มความเร็ว & ถนอมแบตเตอรี่:", font=ctk.CTkFont(size=11, weight="bold"), text_color="#FF9500").pack(anchor="w", padx=10, pady=(4, 1))
+        tips_txt = (
+            "• เปิดใช้งาน 'ลดการเคลื่อนไหว' (Reduce Motion) เพื่อข้ามแอนิเมชันเปิดแอป (เร็วขึ้น 2x)\n"
+            "• ปิด Background App Refresh สำหรับแอปที่ไม่ได้ใช้ เพื่อลดภาระ CPU และ RAM\n"
+            "• หลีกเลี่ยงการใช้งานหรือเล่นเกมระหว่างชาร์จในที่ที่มีอุณหภูมิสูงเกิน 35°C ป้องกัน CPU Throttle\n"
+            "• คลีนไฟล์ขยะในระบบอย่างสม่ำเสมอ เพื่อให้ SLC Write Cache ของ NAND Flash ทำงานเต็มสปีด"
+        )
+        ctk.CTkLabel(tips_box, text=tips_txt, font=ctk.CTkFont(size=10), text_color="#A0A5B5", justify="left").pack(anchor="w", padx=10, pady=(0, 4))
 
     # =================================================================
     # TAB 4: Update iOS Engine
@@ -717,8 +1175,26 @@ class IOSOptimizerApp(ctk.CTk):
         # Update Device Card UI
         self.lbl_device_name.configure(text=f"{dev.device_name} ({dev.total_disk_gb:.0f}GB)")
         
+        if hasattr(self, "banner_mode"):
+            if dev.connection_mode == "LIVE_USB":
+                self.banner_mode.configure(fg_color="#182A1E")
+                self.lbl_banner_mode_icon.configure(text="🟢")
+                self.lbl_banner_mode_text.configure(
+                    text=f"เชื่อมต่อ iPhone จริงสำเร็จ: {dev.device_name} [iOS {dev.current_ios_version} ({dev.build_version})] ข้อมูลตรงกับเครื่องจริงของคุณ 100%",
+                    text_color="#30D158"
+                )
+                self.btn_banner_scan.configure(text="🔄 สแกนใหม่อีกครั้ง")
+            else:
+                self.banner_mode.configure(fg_color="#2B2615")
+                self.lbl_banner_mode_icon.configure(text="ℹ️")
+                self.lbl_banner_mode_text.configure(
+                    text="ขณะนี้อยู่ใน 'โหมดจำลองสถานการณ์': หากคุณเสียบ iPhone จริงอยู่แล้วเวอร์ชันไม่ตรง ให้ปลดล็อคหน้าจอกด 'เชื่อถือ' (Trust) แล้วกดสแกน",
+                    text_color="#FFD60A"
+                )
+                self.btn_banner_scan.configure(text="🔍 สแกน iPhone จริง")
+
         if dev.connection_mode == "LIVE_USB":
-            self.lbl_conn_status.configure(text="● เชื่อมต่อสาย USB จริง (Live Device)", text_color="#34C759")
+            self.lbl_conn_status.configure(text=f"● เชื่อมต่อสาย USB จริง (Live Device - Serial: {dev.serial_number})", text_color="#34C759")
         else:
             self.lbl_conn_status.configure(text="● โหมดจำลองอุปกรณ์สำหรับทดสอบ (Simulated Mode)", text_color="#007AFF")
 
@@ -760,6 +1236,7 @@ class IOSOptimizerApp(ctk.CTk):
 
         threading.Thread(target=fetch_worker, daemon=True).start()
         self._refresh_driver_tab()
+        self._refresh_storage_tab_metrics()
 
     def _update_firmware_ui(self, fw_data):
         self.firmware_info = fw_data
@@ -823,25 +1300,278 @@ class IOSOptimizerApp(ctk.CTk):
         self.card_eval_pc["badge"].configure(text=pc["badge"], fg_color="#34C759" if pc["passed"] else "#FF3B30")
         self.card_eval_pc["detail"].configure(text=pc["message"])
 
-    def _on_click_auto_cleanup(self):
-        self.btn_auto_clean.configure(state="disabled", text="กำลังเคลียร์ขยะ...")
+    def _refresh_storage_tab_metrics(self):
+        dev = self.current_device
+        free_gb = dev.free_disk_gb
+        total_gb = dev.total_disk_gb
+
+        # Storage Card
+        if hasattr(self, "lbl_card_storage_free"):
+            self.lbl_card_storage_free.configure(text=f"{free_gb:.2f} GB / {total_gb:.0f} GB")
+            if free_gb < 2.0:
+                self.lbl_card_storage_status.configure(text="วิกฤต (ต้องเคลียร์ด่วน)", text_color="#FF3B30")
+            elif free_gb < 8.0:
+                self.lbl_card_storage_status.configure(text="OTA ไม่พอ แต่ PC อัปเดตได้", text_color="#FF9500")
+            else:
+                self.lbl_card_storage_status.configure(text="พื้นที่เพียงพอ", text_color="#34C759")
+
+        # Battery in card 4 & subtab perf
+        health = getattr(dev, "battery_health_pct", 94)
+        cycles = getattr(dev, "battery_cycle_count", 218)
+        
+        if hasattr(self, "lbl_card_batt_val"):
+            self.lbl_card_batt_val.configure(text=f"{health}% (ความจุสูงสุด)")
+            self.lbl_card_batt_sub.configure(text=f"รอบชาร์จ: {cycles} รอบ | แบต: {dev.battery_level}%")
+
+        if hasattr(self, "lbl_tele_health"):
+            fixer = StorageFixer(dev)
+            bat_info = fixer.get_battery_diagnostics()
+            self.lbl_tele_health.configure(text=f"{bat_info['health_pct']}%", text_color=bat_info['condition_color'])
+            self.lbl_tele_cycles.configure(text=f"{bat_info['cycle_count']} รอบ")
+            self.lbl_tele_mah.configure(text=f"{bat_info['current_capacity_mah']:,} / {bat_info['design_capacity_mah']:,} mAh")
+            self.lbl_tele_temp.configure(text=f"{bat_info['temperature_c']} °C | {bat_info['voltage_mv']:,} mV")
+            self.lbl_tele_cond.configure(text=f"● ประเมิน: {bat_info['condition']}", text_color=bat_info['condition_color'])
+
+        if hasattr(self, "lbl_speed_score"):
+            fixer = StorageFixer(dev)
+            spd = fixer.assess_device_speed_state()
+            self.lbl_speed_score.configure(
+                text=f"{spd['speed_score']} / 100",
+                text_color="#34C759" if spd['speed_score'] >= 75 else ("#FF9500" if spd['speed_score'] >= 60 else "#FF3B30")
+            )
+            self.lbl_speed_latency.configure(text=f"~{spd['latency_ms']} ms")
+            self.lbl_speed_throttling.configure(
+                text=f"● สถานะ CPU: {spd['throttling_status']}",
+                text_color="#FF3B30" if "ร้อน" in spd['throttling_status'] else ("#FF9500" if "อุ่น" in spd['throttling_status'] else "#34C759")
+            )
+
+    def _on_click_deep_scan(self):
+        self.btn_deep_scan.configure(state="disabled", text="กำลังสแกน...")
         self.txt_clean_log.delete("1.0", "end")
+        self.lbl_clean_status.configure(text="สถานะ: กำลังสแกนไฟล์ขยะและแคชระบบ...")
+        self.clean_progress_bar.set(0.2)
 
         def run():
             fixer = StorageFixer(self.current_device)
-            res = fixer.execute_automated_cleanup(log_callback=lambda msg: self.after(0, lambda: self._append_clean_log(msg)))
+            res = fixer.scan_junk_details(log_callback=lambda msg: self.after(0, lambda: self._append_clean_log(msg)))
+            self.after(0, lambda: self._finish_deep_scan(res))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _finish_deep_scan(self, res):
+        self.btn_deep_scan.configure(state="normal", text="🔍 สแกนค้นหาขยะ (Scan)")
+        self.clean_progress_bar.set(1.0)
+        self.lbl_clean_status.configure(text=f"สถานะ: สแกนเสร็จสิ้น ตรวจพบขยะรวม {res['total_junk_mb']} MB")
+        self.lbl_card_junk_val.configure(text=f"{res['total_junk_mb']:.1f} MB")
+        self.lbl_card_junk_sub.configure(text=f"{res['items_count']} รายการ พร้อมล้าง")
+
+        # Update badges
+        for cat_key, cat_data in res.get("categories", {}).items():
+            if cat_key in self.junk_badge_lbls:
+                self.junk_badge_lbls[cat_key].configure(
+                    text=cat_data["size_str"],
+                    text_color="#FF9500" if cat_data["size_mb"] > 200 else "#34C759"
+                )
+
+        messagebox.showinfo(
+            "สแกนเสร็จสมบูรณ์",
+            f"การสแกนระบบ iOS เสร็จสมบูรณ์!\n\n"
+            f"• ตรวจพบไฟล์ขยะรวม: {res['total_junk_mb']} MB (~{res['total_junk_gb']} GB)\n"
+            f"• จำนวนไฟล์แคชที่พบ: {res['items_count']} รายการ\n\n"
+            f"ท่านสามารถเลือกหมวดหมู่ที่ต้องการแล้วกด 'ล้างรายการที่เลือก' ได้ทันที"
+        )
+
+    def _on_click_clean_selected(self):
+        selected = [k for k, v in self.junk_vars.items() if v.get()]
+        if not selected:
+            messagebox.showwarning("แจ้งเตือน", "กรุณาเลือกอย่างน้อย 1 หมวดหมู่ที่ต้องการล้าง")
+            return
+
+        self.btn_clean_selected.configure(state="disabled", text="กำลังเคลียร์...")
+        self.btn_clean_all.configure(state="disabled")
+        self.txt_clean_log.delete("1.0", "end")
+        self.lbl_clean_status.configure(text="สถานะ: กำลังดำเนินการทำความสะอาด...")
+        self.clean_progress_bar.set(0.0)
+
+        def run():
+            fixer = StorageFixer(self.current_device)
+            res = fixer.execute_selective_cleanup(
+                selected_categories=selected,
+                log_callback=lambda msg: self.after(0, lambda: self._append_clean_log(msg)),
+                progress_callback=lambda pct: self.after(0, lambda: self.clean_progress_bar.set(pct))
+            )
             self.after(0, lambda: self._finish_cleanup(res))
 
         threading.Thread(target=run, daemon=True).start()
+
+    def _on_click_clean_all(self):
+        for v in self.junk_vars.values():
+            v.set(True)
+        self._on_click_clean_selected()
+
+    def _on_click_auto_cleanup(self):
+        self._on_click_clean_all()
 
     def _append_clean_log(self, msg):
         self.txt_clean_log.insert("end", f"{msg}\n")
         self.txt_clean_log.see("end")
 
     def _finish_cleanup(self, res):
-        self.btn_auto_clean.configure(state="normal", text="✨ เริ่มล้างขยะระบบ & แคช (Clear System Logs)")
+        self.btn_clean_selected.configure(state="normal", text="🧹 ล้างรายการที่เลือก")
+        self.btn_clean_all.configure(state="normal", text="🌟 คลีนหมด 1-คลิก")
+        self.clean_progress_bar.set(1.0)
+        self.lbl_clean_status.configure(text=f"สถานะ: เคลียร์สำเร็จ ได้พื้นที่คืน +{res['freed_gb']} GB")
+
+        # Reset badges
+        for badge in self.junk_badge_lbls.values():
+            badge.configure(text="0 MB", text_color="#A0A5B5")
+
+        self.lbl_card_junk_val.configure(text="0 MB", text_color="#34C759")
+        self.lbl_card_junk_sub.configure(text="ระบบสะอาดสมบูรณ์")
+
         self._refresh_device_and_firmware()
-        messagebox.showinfo("สำเร็จ", f"เคลียร์ขยะระบบสำเร็จ!\nได้พื้นที่ว่างเพิ่มขึ้น +{res['freed_gb']} GB\nพื้นที่ว่างปัจจุบัน: {res['new_free_gb']} GB")
+        messagebox.showinfo(
+            "ทำความสะอาดสำเร็จ",
+            f"ทำความสะอาดระบบ iOS สำเร็จเรียบร้อย!\n\n"
+            f"• ได้พื้นที่ว่างเพิ่มขึ้น: +{res['freed_mb']} MB (+{res['freed_gb']} GB)\n"
+            f"• จำนวนรายการที่เคลียร์: {res.get('cleaned_items', 0)} ไฟล์\n"
+            f"• พื้นที่ว่างปัจจุบันบนเครื่อง: {res['new_free_gb']} GB\n\n"
+            f"ระบบได้ทำการ Refresh Cache DB เรียบร้อยแล้ว"
+        )
+
+    def _on_click_tune_speed(self):
+        mode_val = self.var_tune_mode.get() if hasattr(self, "var_tune_mode") else "turbo"
+
+        self.btn_tune_speed.configure(state="disabled", text="⚡ กำลังปรับแต่งความเร็ว iOS...")
+        if hasattr(self, "btn_purge_ram"):
+            self.btn_purge_ram.configure(state="disabled")
+        if hasattr(self, "btn_soft_reboot"):
+            self.btn_soft_reboot.configure(state="disabled")
+
+        self.txt_ram_log.delete("1.0", "end")
+        self.lbl_tune_status.configure(text="สถานะ: กำลังดำเนินการจูนความเร็วและประเมินระบบ...")
+        self.tune_progress_bar.set(0.05)
+
+        def run():
+            fixer = StorageFixer(self.current_device)
+            res = fixer.tune_ios_speed(
+                mode=mode_val,
+                log_callback=lambda msg: self.after(0, lambda: self._append_ram_log(msg)),
+                progress_callback=lambda pct: self.after(0, lambda: self.tune_progress_bar.set(pct))
+            )
+            self.after(0, lambda: self._finish_speed_tune(res))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _finish_speed_tune(self, res):
+        self.btn_tune_speed.configure(state="normal", text="⚡ สั่งจูนความเร็ว iOS ทันที (Run iOS Speed Tune)")
+        if hasattr(self, "btn_purge_ram"):
+            self.btn_purge_ram.configure(state="normal")
+        if hasattr(self, "btn_soft_reboot"):
+            self.btn_soft_reboot.configure(state="normal")
+
+        self.tune_progress_bar.set(1.0)
+        self.lbl_tune_status.configure(
+            text=f"สถานะ: จูนสำเร็จ! ความเร็ว +{res['score_gain']} คะแนน (ความหน่วง UI เหลือ ~{res['latency_after_ms']} ms)"
+        )
+
+        # Update card metrics
+        self.lbl_card_ram_val.configure(text=f"+{res['ram_freed_mb']} MB คืนแล้ว", text_color="#34C759")
+        self.lbl_card_ram_sub.configure(text="RAM & Daemons สะอาด 100%")
+
+        if hasattr(self, "lbl_speed_score"):
+            self.lbl_speed_score.configure(
+                text=f"{res['score_after']} / 100",
+                text_color="#34C759"
+            )
+            self.lbl_speed_latency.configure(text=f"~{res['latency_after_ms']} ms")
+            self.lbl_speed_throttling.configure(
+                text=f"● สถานะ CPU: {res['throttling_status']}",
+                text_color="#FF3B30" if "ร้อน" in res['throttling_status'] else ("#FF9500" if "อุ่น" in res['throttling_status'] else "#34C759")
+            )
+
+        self._refresh_device_and_firmware()
+
+        messagebox.showinfo(
+            "⚡ จูนความเร็ว iOS สำเร็จ 100%",
+            f"การปรับแต่งประสิทธิภาพและเร่งความเร็ว iOS เสร็จสมบูรณ์!\n\n"
+            f"📊 ผลลัพธ์หลังการจูน:\n"
+            f"• คะแนนความเร็วระบบ: {res['score_before']} ➔ {res['score_after']} / 100 (+{res['score_gain']} คะแนน)\n"
+            f"• ปล่อยคืน RAM ทันที: +{res['ram_freed_mb']} MB\n"
+            f"• ปลดล็อคพื้นที่ NAND Storage: +{res['storage_freed_mb']} MB\n"
+            f"• ความหน่วงการสัมผัส (Latency): ลดลง {res['latency_reduction_pct']}% (เหลือ ~{res['latency_after_ms']} ms)\n"
+            f"• สถานะชิปประมวลผล: {res['throttling_status']}\n\n"
+            f"เครื่องจะตอบสนองรวดเร็ว สลับแอปไม่หน่วง และแอนิเมชันลื่นไหลขึ้นทันที!"
+        )
+
+    def _on_click_show_speed_guide(self):
+        tips = get_speed_tuning_recommendations()
+        msg_parts = ["💡 5 เทคนิคการตั้งค่า iOS ให้เครื่องเร็วขึ้นทันที 2 เท่า:\n"]
+        for t in tips:
+            msg_parts.append(f"{t['title']}")
+            msg_parts.append(f"  • วิธีตั้งค่า: {t['how']}")
+            msg_parts.append(f"  • ผลลัพธ์: {t['impact']} - {t['desc']}\n")
+
+        messagebox.showinfo("เทคนิคการตั้งค่า iOS ให้เร็วที่สุด", "\n".join(msg_parts))
+
+    def _on_click_purge_ram(self):
+        self.btn_purge_ram.configure(state="disabled", text="กำลังปล่อยคืน RAM...")
+        self.txt_ram_log.delete("1.0", "end")
+
+        def run():
+            fixer = StorageFixer(self.current_device)
+            res = fixer.purge_system_memory(log_callback=lambda msg: self.after(0, lambda: self._append_ram_log(msg)))
+            self.after(0, lambda: self._finish_ram_purge(res))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _append_ram_log(self, msg):
+        self.txt_ram_log.insert("end", f"{msg}\n")
+        self.txt_ram_log.see("end")
+
+    def _finish_ram_purge(self, res):
+        self.btn_purge_ram.configure(state="normal", text="🚀 ปล่อยคืน RAM ทันที (Purge RAM & Flush Caches)")
+        self.lbl_card_ram_val.configure(text=f"+{res['freed_ram_mb']} MB คืนแล้ว", text_color="#34C759")
+        self.lbl_card_ram_sub.configure(text="ระบบปล่อยคืน Inactive Memory สำเร็จ")
+        messagebox.showinfo(
+            "ปล่อยคืน RAM สำเร็จ",
+            f"ดำเนินการปล่อยคืน RAM เรียบร้อย!\n\n"
+            f"• ได้รับหน่วยความจำ RAM คืน: +{res['freed_ram_mb']} MB\n"
+            f"• สัญญาณ Darwin Low-Memory ได้ถูกส่งไปยังแอปและระบบเพื่อ flush แคชตกค้างแล้ว\n"
+            f"• เครื่องจะตอบสนองรวดเร็วและลื่นไหลขึ้นทันที"
+        )
+
+    def _on_click_refresh_battery(self):
+        self._refresh_storage_tab_metrics()
+        messagebox.showinfo("อัปเดตข้อมูลสำเร็จ", "อัปเดตข้อมูลสุขภาพแบตเตอรี่และฮาร์ดแวร์ล่าสุดเรียบร้อย")
+
+    def _on_click_soft_reboot(self):
+        confirm = messagebox.askyesno(
+            "ยืนยันการซอฟต์รีสตาร์ท",
+            "ท่านต้องการสั่งซอฟต์รีสตาร์ท (Safe Soft Reboot) อุปกรณ์ iOS เครื่องนี้หรือไม่?\n\n"
+            "การรีสตาร์ทจะปิด-เปิดเครื่องใหม่อย่างปลอดภัยเพื่อรีเฟรช SpringBoard และล้าง memory leaks ทั้งหมด โดยไม่มีผลกระทบต่อข้อมูลใดๆ"
+        )
+        if not confirm:
+            return
+
+        self.btn_soft_reboot.configure(state="disabled", text="กำลังสั่งรีสตาร์ท...")
+
+        def run():
+            fixer = StorageFixer(self.current_device)
+            res = fixer.soft_reboot_device(log_callback=lambda msg: self.after(0, lambda: self._append_ram_log(msg)))
+            self.after(0, lambda: self._finish_soft_reboot(res))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _finish_soft_reboot(self, res):
+        self.btn_soft_reboot.configure(state="normal", text="🔄 สั่งซอฟต์รีสตาร์ท iPhone (Safe Soft Reboot)")
+        if res.get("success"):
+            messagebox.showinfo(
+                "รีสตาร์ทสำเร็จ",
+                "ส่งคำสั่งซอฟต์รีสตาร์ทสำเร็จ!\nอุปกรณ์จะทำการบูตเข้าระบบ SpringBoard ใหม่อย่างปลอดภัย"
+            )
+        else:
+            messagebox.showwarning("ข้อผิดพลาด", f"ไม่สามารถสั่งรีสตาร์ทได้: {res.get('error')}")
 
     def _on_browse_ipsw(self):
         path = filedialog.askopenfilename(

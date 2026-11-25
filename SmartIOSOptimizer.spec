@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+datas = [('assets', 'assets'), ('manual.html', '.')]
 binaries = []
 hiddenimports = ['requests', 'packaging', 'packaging.version', 'packaging.specifiers', 'PIL', 'pymobiledevice3']
 tmp_ret = collect_all('customtkinter')
@@ -39,7 +39,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['D:/wk_ai/smart_ios_optimize/assets/app_icon.ico'],
+    icon=['D:/website/smart_ios_optimize/assets/app_icon.ico'],
 )
 coll = COLLECT(
     exe,

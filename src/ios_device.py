@@ -40,41 +40,63 @@ class DeviceInfo:
     used_disk_gb: float         # Used storage in GB
     connection_mode: str        # 'LIVE_USB' or 'SIMULATED'
     state_details: str
+    battery_health_pct: int = 95
+    battery_cycle_count: int = 180
+    battery_temp_c: float = 29.5
 
     def to_dict(self):
         return asdict(self)
 
-# Preset mapping for friendly names
+# Preset mapping for friendly names (Apple Official Hardware Identifiers)
 MODEL_MAP = {
-    "iPhone16,2": "iPhone 16 Pro Max",
-    "iPhone16,1": "iPhone 16 Pro",
-    "iPhone15,5": "iPhone 15 Plus",
+    # iPhone 16 series
+    "iPhone17,1": "iPhone 16 Pro",
+    "iPhone17,2": "iPhone 16 Pro Max",
+    "iPhone17,3": "iPhone 16",
+    "iPhone17,4": "iPhone 16 Plus",
+    # iPhone 15 series
+    "iPhone16,1": "iPhone 15 Pro",
+    "iPhone16,2": "iPhone 15 Pro Max",
     "iPhone15,4": "iPhone 15",
+    "iPhone15,5": "iPhone 15 Plus",
+    # iPhone 14 series
+    "iPhone15,2": "iPhone 14 Pro",
     "iPhone15,3": "iPhone 14 Pro Max",
-    "iPhone15,2": "iPhone 14 Pro / 15 Pro",
-    "iPhone14,8": "iPhone 14 Plus",
     "iPhone14,7": "iPhone 14",
-    "iPhone14,5": "iPhone 13",
-    "iPhone14,4": "iPhone 13 mini",
-    "iPhone14,3": "iPhone 13 Pro Max",
+    "iPhone14,8": "iPhone 14 Plus",
+    # iPhone 13 series
     "iPhone14,2": "iPhone 13 Pro",
-    "iPhone13,4": "iPhone 12 Pro Max",
-    "iPhone13,3": "iPhone 12 Pro",
-    "iPhone13,2": "iPhone 12",
+    "iPhone14,3": "iPhone 13 Pro Max",
+    "iPhone14,4": "iPhone 13 mini",
+    "iPhone14,5": "iPhone 13",
+    # iPhone SE
+    "iPhone14,6": "iPhone SE (3rd gen)",
+    "iPhone12,8": "iPhone SE (2nd gen)",
+    # iPhone 12 series
     "iPhone13,1": "iPhone 12 mini",
-    "iPhone12,5": "iPhone 11 Pro Max",
-    "iPhone12,3": "iPhone 11 Pro",
+    "iPhone13,2": "iPhone 12",
+    "iPhone13,3": "iPhone 12 Pro",
+    "iPhone13,4": "iPhone 12 Pro Max",
+    # iPhone 11 series
     "iPhone12,1": "iPhone 11",
-    "iPad16,5": "iPad Pro 13-inch (M4)",
+    "iPhone12,3": "iPhone 11 Pro",
+    "iPhone12,5": "iPhone 11 Pro Max",
+    # iPad series
     "iPad16,3": "iPad Pro 11-inch (M4)",
+    "iPad16,4": "iPad Pro 11-inch (M4) Cellular",
+    "iPad16,5": "iPad Pro 13-inch (M4)",
+    "iPad16,6": "iPad Pro 13-inch (M4) Cellular",
+    "iPad14,8": "iPad Air 11-inch (M2)",
+    "iPad14,9": "iPad Air 11-inch (M2) Cellular",
     "iPad14,10": "iPad Air 13-inch (M2)",
+    "iPad14,11": "iPad Air 13-inch (M2) Cellular",
 }
 
 # Preset devices for simulation and testing
 SIMULATION_PRESETS = {
     "iPhone 15 Pro (128GB - พื้นที่เหลือน้อย 1.8GB)": {
         "device_name": "iPhone 15 Pro",
-        "product_type": "iPhone15,2",
+        "product_type": "iPhone16,1",
         "serial_number": "DNQXW01K0DN1",
         "udid": "00008130-001234567890001E",
         "current_ios_version": "17.4.1",
@@ -84,7 +106,10 @@ SIMULATION_PRESETS = {
         "total_disk_gb": 128.0,
         "free_disk_gb": 1.85,
         "used_disk_gb": 126.15,
-        "state_details": "จำลองสถานการณ์: พื้นที่ไม่พอสำหรับ OTA Update (ต้องการการแก้ปัญหา)"
+        "state_details": "จำลองสถานการณ์: พื้นที่ไม่พอสำหรับ OTA Update (ต้องการการแก้ปัญหา)",
+        "battery_health_pct": 94,
+        "battery_cycle_count": 218,
+        "battery_temp_c": 30.2
     },
     "iPhone 14 (128GB - พื้นที่วิกฤต 0.8GB แบตเตอรี่ต่ำ)": {
         "device_name": "iPhone 14",
@@ -98,7 +123,10 @@ SIMULATION_PRESETS = {
         "total_disk_gb": 128.0,
         "free_disk_gb": 0.82,
         "used_disk_gb": 127.18,
-        "state_details": "จำลองสถานการณ์: พื้นที่วิกฤตและแบตเตอรี่ไม่เพียงพอ"
+        "state_details": "จำลองสถานการณ์: พื้นที่วิกฤตและแบตเตอรี่ไม่เพียงพอ",
+        "battery_health_pct": 83,
+        "battery_cycle_count": 542,
+        "battery_temp_c": 33.4
     },
     "iPhone 13 Pro (256GB - พร้อมอัปเดต 24GB Free)": {
         "device_name": "iPhone 13 Pro",
@@ -112,7 +140,10 @@ SIMULATION_PRESETS = {
         "total_disk_gb": 256.0,
         "free_disk_gb": 24.50,
         "used_disk_gb": 231.50,
-        "state_details": "จำลองสถานการณ์: อุปกรณ์พร้อมอัปเดตทันที"
+        "state_details": "จำลองสถานการณ์: อุปกรณ์พร้อมอัปเดตทันที",
+        "battery_health_pct": 89,
+        "battery_cycle_count": 395,
+        "battery_temp_c": 28.5
     },
     "iPhone 11 (64GB - พื้นที่เหลือน้อย 2.4GB)": {
         "device_name": "iPhone 11",
@@ -126,11 +157,14 @@ SIMULATION_PRESETS = {
         "total_disk_gb": 64.0,
         "free_disk_gb": 2.40,
         "used_disk_gb": 61.60,
-        "state_details": "จำลองสถานการณ์: iPhone 64GB พื้นที่จำกัด"
+        "state_details": "จำลองสถานการณ์: iPhone 64GB พื้นที่จำกัด",
+        "battery_health_pct": 77,
+        "battery_cycle_count": 885,
+        "battery_temp_c": 34.1
     },
     "iPhone 16 Pro Max (256GB - เครื่องใหม่ 180GB Free)": {
         "device_name": "iPhone 16 Pro Max",
-        "product_type": "iPhone16,2",
+        "product_type": "iPhone17,2",
         "serial_number": "NP09QWER1234",
         "udid": "00008140-001122334455005D",
         "current_ios_version": "18.0",
@@ -140,7 +174,10 @@ SIMULATION_PRESETS = {
         "total_disk_gb": 256.0,
         "free_disk_gb": 182.0,
         "used_disk_gb": 74.0,
-        "state_details": "จำลองสถานการณ์: อุปกรณ์รุ่นใหม่ล่าสุด สมบูรณ์แบบ"
+        "state_details": "จำลองสถานการณ์: อุปกรณ์รุ่นใหม่ล่าสุด สมบูรณ์แบบ",
+        "battery_health_pct": 100,
+        "battery_cycle_count": 22,
+        "battery_temp_c": 26.8
     }
 }
 
@@ -161,11 +198,25 @@ async def _detect_usb_async() -> Optional[DeviceInfo]:
         # Connect to lockdown (awaiting coroutine in pymobiledevice3 11+)
         lockdown = await create_using_usbmux(serial=udid)
         
-        raw_name = await lockdown.get_value(key="DeviceName") or "iPhone"
-        product_type = await lockdown.get_value(key="ProductType") or "iPhone"
-        product_version = await lockdown.get_value(key="ProductVersion") or "17.0"
-        build_version = await lockdown.get_value(key="BuildVersion") or "Unknown"
-        serial_number = await lockdown.get_value(key="SerialNumber") or udid[:12]
+        # Read root lockdown values
+        all_vals = {}
+        try:
+            val = await lockdown.get_value()
+            if isinstance(val, dict):
+                all_vals = val
+        except Exception:
+            pass
+
+        raw_name = all_vals.get("DeviceName") or (await lockdown.get_value(key="DeviceName")) or "iPhone"
+        product_type = all_vals.get("ProductType") or (await lockdown.get_value(key="ProductType")) or "iPhone"
+        product_version = all_vals.get("ProductVersion") or (await lockdown.get_value(key="ProductVersion")) or "17.0"
+        build_version = all_vals.get("BuildVersion") or (await lockdown.get_value(key="BuildVersion")) or "Unknown"
+        serial_number = all_vals.get("SerialNumber") or (await lockdown.get_value(key="SerialNumber")) or udid[:12]
+
+        # Handle Supplemental Security Response (e.g. "(a)", "(c)")
+        supp_extra = all_vals.get("SupplementalVersionExtra")
+        if supp_extra and supp_extra not in str(product_version):
+            product_version = f"{product_version} {supp_extra}"
 
         friendly_model = MODEL_MAP.get(product_type, product_type)
         device_name = f"{friendly_model} ({raw_name})" if raw_name != friendly_model else friendly_model
@@ -185,14 +236,29 @@ async def _detect_usb_async() -> Optional[DeviceInfo]:
             pass
         used_gb = max(0.0, round(total_gb - free_gb, 2))
 
-        # Query Battery
+        # Query Battery & Health
         battery_level = 85
         is_charging = True
+        battery_health = 95
+        battery_cycle = 180
+        battery_temp = 29.5
         try:
             battery_info = await lockdown.get_value(domain="com.apple.mobile.battery")
             if battery_info:
                 battery_level = int(battery_info.get("BatteryCurrentCapacity", 85))
                 is_charging = bool(battery_info.get("ExternalConnected", True))
+                if "CycleCount" in battery_info:
+                    battery_cycle = int(battery_info.get("CycleCount", 180))
+                if "MaximumCapacityPercent" in battery_info:
+                    battery_health = int(battery_info.get("MaximumCapacityPercent", 95))
+                elif "NominalChargeCapacity" in battery_info and "DesignCapacity" in battery_info:
+                    nom = float(battery_info["NominalChargeCapacity"])
+                    des = float(battery_info["DesignCapacity"])
+                    if des > 0:
+                        battery_health = min(100, max(50, int((nom / des) * 100)))
+                if "BatteryTemperature" in battery_info:
+                    raw_temp = float(battery_info.get("BatteryTemperature", 295))
+                    battery_temp = round(raw_temp / 10.0, 1) if raw_temp > 100 else round(raw_temp, 1)
         except Exception:
             pass
 
@@ -209,7 +275,10 @@ async def _detect_usb_async() -> Optional[DeviceInfo]:
             free_disk_gb=free_gb,
             used_disk_gb=used_gb,
             connection_mode="LIVE_USB",
-            state_details="เชื่อมต่อผ่านสาย USB จริง และอ่านค่าจากเครื่องสำเร็จ"
+            state_details="เชื่อมต่อผ่านสาย USB จริง และอ่านค่าจากเครื่องสำเร็จ",
+            battery_health_pct=battery_health,
+            battery_cycle_count=battery_cycle,
+            battery_temp_c=battery_temp
         )
     except Exception as e:
         return None
@@ -254,5 +323,8 @@ def get_simulated_device(preset_key: str, override_free_gb=None, override_batter
         free_disk_gb=data["free_disk_gb"],
         used_disk_gb=data["used_disk_gb"],
         connection_mode="SIMULATED",
-        state_details=data["state_details"]
+        state_details=data["state_details"],
+        battery_health_pct=data.get("battery_health_pct", 95),
+        battery_cycle_count=data.get("battery_cycle_count", 180),
+        battery_temp_c=data.get("battery_temp_c", 29.5)
     )

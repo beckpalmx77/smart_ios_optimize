@@ -16,7 +16,6 @@ from typing import Dict, Any, Callable, Optional
 from .ios_device import DeviceInfo
 
 try:
-    from pymobiledevice3.cli.restore import update as pymd3_restore_update
     from pymobiledevice3.lockdown import create_using_usbmux
     PYMD3_AVAILABLE = True
 except ImportError:

@@ -9,14 +9,14 @@ warnings.filterwarnings("ignore")
 import requests
 from packaging import version as pkg_version
 
-# Pre-defined list of common devices for immediate offline / quick UI selection
+# Pre-defined list of common devices for immediate offline / quick UI selection (Apple Official Hardware Identifiers)
 POPULAR_DEVICES = [
-    {"name": "iPhone 16 Pro Max", "identifier": "iPhone16,2"},
-    {"name": "iPhone 16 Pro", "identifier": "iPhone16,1"},
-    {"name": "iPhone 16 Plus", "identifier": "iPhone15,5"},
-    {"name": "iPhone 16", "identifier": "iPhone15,4"},
-    {"name": "iPhone 15 Pro Max", "identifier": "iPhone15,3"},
-    {"name": "iPhone 15 Pro", "identifier": "iPhone15,2"},
+    {"name": "iPhone 16 Pro Max", "identifier": "iPhone17,2"},
+    {"name": "iPhone 16 Pro", "identifier": "iPhone17,1"},
+    {"name": "iPhone 16 Plus", "identifier": "iPhone17,4"},
+    {"name": "iPhone 16", "identifier": "iPhone17,3"},
+    {"name": "iPhone 15 Pro Max", "identifier": "iPhone16,2"},
+    {"name": "iPhone 15 Pro", "identifier": "iPhone16,1"},
     {"name": "iPhone 15 Plus", "identifier": "iPhone15,5"},
     {"name": "iPhone 15", "identifier": "iPhone15,4"},
     {"name": "iPhone 14 Pro Max", "identifier": "iPhone15,3"},
@@ -27,6 +27,7 @@ POPULAR_DEVICES = [
     {"name": "iPhone 13 Pro", "identifier": "iPhone14,2"},
     {"name": "iPhone 13", "identifier": "iPhone14,5"},
     {"name": "iPhone 13 mini", "identifier": "iPhone14,4"},
+    {"name": "iPhone SE (3rd gen)", "identifier": "iPhone14,6"},
     {"name": "iPhone 12 Pro Max", "identifier": "iPhone13,4"},
     {"name": "iPhone 12 Pro", "identifier": "iPhone13,3"},
     {"name": "iPhone 12", "identifier": "iPhone13,2"},
@@ -37,6 +38,7 @@ POPULAR_DEVICES = [
     {"name": "iPad Pro 13-inch (M4)", "identifier": "iPad16,5"},
     {"name": "iPad Pro 11-inch (M4)", "identifier": "iPad16,3"},
     {"name": "iPad Air 13-inch (M2)", "identifier": "iPad14,10"},
+    {"name": "iPad Air 11-inch (M2)", "identifier": "iPad14,8"},
 ]
 
 _FIRMWARE_CACHE = {}
@@ -69,7 +71,14 @@ def fetch_firmware_info(identifier: str):
         firmwares = data.get("firmwares", [])
         signed_firmwares = [f for f in firmwares if f.get("signed", False)]
         
-        # Sort signed firmwares by release date or version
+        # Sort signed firmwares by version descending to get true latest release
+        def _sort_ver(fw):
+            try:
+                return pkg_version.parse(str(fw.get("version", "0")))
+            except Exception:
+                return pkg_version.parse("0")
+
+        signed_firmwares.sort(key=_sort_ver, reverse=True)
         latest_signed = signed_firmwares[0] if signed_firmwares else None
 
         result = {

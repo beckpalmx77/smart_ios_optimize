@@ -63,7 +63,7 @@ class PreUpdateEvaluator:
                 f"จำเป็นต้องเปิดระบบ 'เคลียร์ขยะ & เคลียร์แคช' ก่อนจึงจะเริ่มอัปเดตได้"
             )
             storage_badge = "พื้นที่วิกฤต ต้องเคลียร์ก่อน"
-            action_recommendations.append("กดแท็บ 'แก้ไขปัญหาพื้นที่ไม่พอ' เพื่อล้าง Crash logs, แคชระบบ, หรือ Offload Apps")
+            action_recommendations.append("กดแท็บ 'เคลียร์ขยะ & ปรับแต่ง iOS' เพื่อล้าง Crash logs, แคชระบบ, ปล่อยคืน RAM หรือ Offload Apps")
 
         checks["storage"] = {
             "status": storage_status,
